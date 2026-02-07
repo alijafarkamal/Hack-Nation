@@ -41,9 +41,10 @@ flowchart TD
         SUP["Supervisor Node<br/><i>Intent classification + routing</i>"]
         SQL_N["SQL Agent Node<br/><i>Calls Genie</i>"]
         VEC_N["RAG Agent Node<br/><i>Calls Vector Search</i>"]
+        IDP_N["IDP Extraction Node<br/><i>Extracts structured facts from free-form text</i>"]
         MED_N["Medical Reasoning Node<br/><i>Calls Model Serving</i>"]
-        GEO_N["Geospatial Node<br/><i>Local Haversine</i>"]
-        SYN["Synthesis Node<br/><i>Merges results + citations</i>"]
+        GEO_N["Geospatial Node<br/><i>Local Haversine + desert detection</i>"]
+        SYN["Synthesis Node<br/><i>Cross-references structured vs unstructured + citations</i>"]
     end
 
     subgraph DB["Databricks Free Edition (Remote)"]
@@ -57,15 +58,19 @@ flowchart TD
     ST -->|"User query"| SUP
     SUP -->|STRUCTURED| SQL_N
     SUP -->|SEMANTIC| VEC_N
+    SUP -->|EXTRACT| IDP_N
     SUP -->|ANOMALY| MED_N
     SUP -->|GEOSPATIAL| GEO_N
     SQL_N -->|"SDK call"| GN
     VEC_N -->|"SDK call"| VS
+    IDP_N -->|"SDK call"| VS
+    IDP_N -->|"Extract facts"| MS
     MED_N -->|"SDK call"| MS
     GN --> UC
     VS --> UC
     SQL_N --> SYN
     VEC_N --> SYN
+    IDP_N --> SYN
     MED_N --> SYN
     GEO_N --> SYN
     SYN --> ST
@@ -85,6 +90,7 @@ flowchart TD
 | **Semantic search** over free-form text | **Mosaic AI Vector Search** | Auto-embeds procedure/equipment/capability columns, returns top-k matches by semantic similarity | [docs.databricks.com/en/generative-ai/vector-search](https://docs.databricks.com/en/generative-ai/vector-search) |
 | **Anomaly detection** (procedure-equipment gaps) | **Model Serving** (Llama 3.3 70B) | LLM reasons over facility data to detect mismatches between claimed procedures and listed equipment | [docs.databricks.com/en/machine-learning/model-serving](https://docs.databricks.com/en/machine-learning/model-serving) |
 | **Data storage** with governance | **Unity Catalog** | Managed Delta table with column descriptions — makes Genie smarter and shows data governance | [docs.databricks.com/en/data-governance/unity-catalog](https://docs.databricks.com/en/data-governance/unity-catalog) |
+| **IDP extraction** (structured facts from free-form text) | **Vector Search** + **Model Serving** | Retrieves raw free-form text, then LLM extracts structured facts (procedures, equipment, capabilities) using sponsor's extraction prompts | [resources/prompts_and_pydantic_models/free_form.py](resources/prompts_and_pydantic_models/free_form.py) |
 | **Citation trail** (which data produced each answer) | **MLflow Tracing** | Logs inputs/outputs of each step, creating an audit trail of which rows were used | [docs.databricks.com/en/mlflow](https://docs.databricks.com/en/mlflow) |
 | **Data cleaning** + geocoding | **Notebooks** | Python notebook for one-time CSV cleaning, region normalization, geocoding, upload to Unity Catalog | [docs.databricks.com/en/notebooks](https://docs.databricks.com/en/notebooks) |
 
@@ -118,7 +124,7 @@ flowchart TD
 | **Frontend** | Streamlit | [docs.streamlit.io](https://docs.streamlit.io/) |
 | **Map** | Folium + streamlit-folium | [python-visualization.github.io/folium](https://python-visualization.github.io/folium/) |
 | **Geospatial** | Python (Haversine, numpy) — local | — |
-| **Language** | Python 3.11+ | — |
+| **Language** | Python 3.13 | — |
 
 ### .env.example
 
@@ -140,24 +146,27 @@ OPENAI_API_KEY=sk-...                          # Optional fallback
 
 ```
 # Agent orchestration
-langgraph>=0.2.0
-langchain>=0.3.0
-langchain-openai>=0.2.0
+langgraph==1.0.8
+langchain==1.2.9
+langchain-openai==1.1.7
 
 # Databricks SDK
-databricks-sdk>=0.30.0
-databricks-vectorsearch>=0.40
-mlflow>=2.16.0
+databricks-sdk==0.85.0
+databricks-vectorsearch==0.64
+mlflow==3.9.0
 
 # Frontend
-streamlit>=1.38.0
-streamlit-folium>=0.22.0
-folium>=0.17.0
+streamlit==1.54.0
+streamlit-folium==0.26.1
+folium==0.20.0
 
 # Data (local utilities)
-pandas>=2.0.0
-numpy>=1.24.0
-python-dotenv>=1.0.0
+pandas==3.0.0
+numpy==2.4.2
+python-dotenv==1.2.1
+
+# Testing
+pytest==9.0.2
 ```
 
 ### Project Structure
@@ -169,6 +178,12 @@ Hack-Nation/
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
+├── resources/
+│   └── prompts_and_pydantic_models/   # Sponsor-provided extraction pipeline (read-only reference)
+│       ├── organization_extraction.py # Entity classification → facility / NGO / other
+│       ├── facility_and_ngo_fields.py # Structured field schemas (Facility, NGO, BaseOrganization)
+│       ├── free_form.py               # FacilityFacts: procedure, equipment, capability
+│       └── medical_specialties.py     # Specialty classifier + name-parsing rules
 ├── data/
 │   └── ghana_city_coords.json        # Static geocoding lookup (local)
 ├── src/
@@ -180,15 +195,24 @@ Hack-Nation/
 │   │   ├── supervisor.py             # Supervisor node — classifies intent, routes to agents
 │   │   ├── sql_agent.py              # SQL Agent node — calls Databricks Genie
 │   │   ├── rag_agent.py              # RAG Agent node — calls Databricks Vector Search
+│   │   ├── idp_extraction.py         # IDP Extraction node — extracts structured facts from free-form text
 │   │   ├── medical_reasoning.py      # Medical Reasoning node — anomaly detection via Model Serving
-│   │   ├── geospatial.py             # Geospatial node — Haversine, cold-spots (local)
-│   │   └── synthesis.py              # Synthesis node — merges results, formats citations
+│   │   ├── geospatial.py             # Geospatial node — Haversine, cold-spots, medical deserts
+│   │   └── synthesis.py              # Synthesis node — cross-references structured vs unstructured + citations
 │   ├── tools/
 │   │   ├── genie_tool.py             # Databricks Genie SDK wrapper
 │   │   ├── vector_search_tool.py     # Databricks Vector Search SDK wrapper
 │   │   └── model_serving_tool.py     # Databricks Model Serving SDK wrapper
 │   ├── databricks_clients.py         # Shared Databricks client initialization
 │   └── map_component.py              # Folium map builder
+├── tests/
+│   ├── test_config.py               # Phase 1: Databricks connection smoke test
+│   ├── test_tools.py                # Phase 1: Genie, Vector Search, Model Serving smoke tests
+│   ├── test_graph.py                # Phase 2: Graph compiles + intent routing
+│   ├── test_nodes.py                # Phase 2: Node contract tests (expected state keys)
+│   ├── test_idp_extraction.py       # Phase 2: IDP extracts structured facts
+│   ├── test_geospatial.py           # Phase 3: Haversine + desert detection math
+│   └── test_e2e.py                  # Phase 2.5 MVD gate: 5 demo queries
 └── notebooks/
     └── 01_setup_databricks.py        # Run once in Databricks: clean → upload → index → Genie
 ```
@@ -260,15 +284,17 @@ gantt
     section MVD Checkpoint
     Minimum Viable Demo MUST work                :milestone, crit, after p2f, 0
 
-    section Surface — Map + Polish
-    Folium map with facility markers             :p3a, after p2f, 30
-    MLflow tracing decorators                    :p3b, after p3a, 20
-    Citations + error handling                   :p3c, after p3b, 20
+    section Surface — Map + Deserts + Planning
+    Folium map with facility markers             :p3a, after p2f, 20
+    Medical desert overlay (25% of score!)       :p3b, after p3a, 30
+    Planning dashboard — Mission Planner tab     :p3c, after p3b, 30
+    MLflow tracing + citations                   :p3d, after p3c, 20
+    Error handling + polish                      :p3e, after p3d, 20
 
     section Stretch
-    Geospatial cold-spots on map                 :p4a, after p3c, 30
-    MLflow Tracing for citation trail            :p4b, after p4a, 30
-    Planning dashboard                           :p4c, after p4b, 30
+    Agentic-step-level citations (MLflow)        :p4a, after p3e, 30
+    Composite fan-out queries                    :p4b, after p4a, 30
+    PDF export for planning report               :p4c, after p4b, 20
 ```
 
 ### Foundation — Databricks Setup (Notebook)
@@ -484,14 +510,15 @@ from langgraph.graph import MessagesState
 class AgentState(TypedDict):
     """Shared state passed between all LangGraph nodes.
     Ref: https://langchain-ai.github.io/langgraph/concepts/low_level/#state"""
-    query: str                                          # Original user question
-    intent: Literal["SQL", "SEARCH", "ANOMALY", "GEO"] # Classified by supervisor
-    sql_result: Optional[dict]                          # From Genie
-    search_result: Optional[list]                       # From Vector Search
-    anomaly_result: Optional[str]                       # From Model Serving
-    geo_result: Optional[dict]                          # From local geospatial
-    final_answer: Optional[str]                         # Merged by synthesis node
-    citations: list                                     # Audit trail for MLflow
+    query: str                                                    # Original user question
+    intent: Literal["SQL", "SEARCH", "EXTRACT", "ANOMALY", "GEO"] # Classified by supervisor
+    sql_result: Optional[dict]                                    # From Genie
+    search_result: Optional[list]                                 # From Vector Search
+    extraction_result: Optional[dict]                             # From IDP Extraction (structured facts)
+    anomaly_result: Optional[str]                                 # From Model Serving
+    geo_result: Optional[dict]                                    # From local geospatial
+    final_answer: Optional[str]                                   # Merged by synthesis node
+    citations: list                                               # Audit trail for MLflow
 ```
 
 #### `src/graph.py` — LangGraph State Graph Definition
@@ -502,6 +529,7 @@ from src.state import AgentState
 from src.nodes.supervisor import supervisor_node
 from src.nodes.sql_agent import sql_agent_node
 from src.nodes.rag_agent import rag_agent_node
+from src.nodes.idp_extraction import idp_extraction_node
 from src.nodes.medical_reasoning import medical_reasoning_node
 from src.nodes.geospatial import geospatial_node
 from src.nodes.synthesis import synthesis_node
@@ -519,6 +547,7 @@ workflow = StateGraph(AgentState)
 workflow.add_node("supervisor", supervisor_node)
 workflow.add_node("SQL", sql_agent_node)
 workflow.add_node("SEARCH", rag_agent_node)
+workflow.add_node("EXTRACT", idp_extraction_node)
 workflow.add_node("ANOMALY", medical_reasoning_node)
 workflow.add_node("GEO", geospatial_node)
 workflow.add_node("synthesis", synthesis_node)
@@ -526,9 +555,10 @@ workflow.add_node("synthesis", synthesis_node)
 # Edges: supervisor classifies intent → route to correct agent → merge in synthesis
 workflow.set_entry_point("supervisor")
 workflow.add_conditional_edges("supervisor", route_by_intent,
-    {"SQL": "SQL", "SEARCH": "SEARCH", "ANOMALY": "ANOMALY", "GEO": "GEO"})
+    {"SQL": "SQL", "SEARCH": "SEARCH", "EXTRACT": "EXTRACT", "ANOMALY": "ANOMALY", "GEO": "GEO"})
 workflow.add_edge("SQL", "synthesis")
 workflow.add_edge("SEARCH", "synthesis")
+workflow.add_edge("EXTRACT", "synthesis")
 workflow.add_edge("ANOMALY", "synthesis")
 workflow.add_edge("GEO", "synthesis")
 workflow.add_edge("synthesis", END)
@@ -553,15 +583,16 @@ from src.state import AgentState
 ROUTER_PROMPT = """Classify this healthcare data question into ONE category:
 - SQL: counts, aggregations, rankings, comparisons (e.g. "How many hospitals have cardiology?")
 - SEARCH: specific facility services, capabilities, equipment (e.g. "What does Korle Bu offer?")
+- EXTRACT: extract structured facts from unstructured text for a facility (e.g. "What procedures does Tamale Teaching Hospital perform?" or "Parse capabilities for facilities in Ashanti")
 - ANOMALY: data inconsistencies, mismatches (e.g. "Facilities claiming surgery but lacking equipment?")
-- GEO: distances, locations, medical deserts (e.g. "Hospitals within 50km of Tamale?")
+- GEO: distances, locations, medical deserts, coverage gaps (e.g. "Hospitals within 50km of Tamale?" or "Where are ophthalmology deserts?")
 Respond with ONLY the category name."""
 
 def supervisor_node(state: AgentState) -> dict:
     """Supervisor node — classifies user intent using Databricks Model Serving LLM.
     Returns the intent label which drives conditional routing in the graph."""
     intent = query_llm(ROUTER_PROMPT, state["query"]).strip().upper()
-    if intent not in ("SQL", "SEARCH", "ANOMALY", "GEO"):
+    if intent not in ("SQL", "SEARCH", "EXTRACT", "ANOMALY", "GEO"):
         intent = "SQL"  # Default to Genie for unrecognized intents
     return {"intent": intent}
 ```
@@ -592,20 +623,111 @@ def rag_agent_node(state: AgentState) -> dict:
     return {"search_result": results, "citations": state["citations"] + [{"source": "vector_search", "hits": len(results)}]}
 ```
 
-#### `src/nodes/synthesis.py` — Result Merger + Citation Builder
+#### `src/nodes/idp_extraction.py` — IDP Extraction Node (Core Feature #1)
+
+**This is the heart of the IDP challenge (30% of scoring).** It goes beyond keyword search — it extracts structured medical facts from raw free-form text using the LLM, guided by the sponsor's extraction prompt from `resources/prompts_and_pydantic_models/free_form.py`.
+
+```python
+import json
+from src.tools.vector_search_tool import query_vector_search
+from src.tools.model_serving_tool import query_llm
+from src.state import AgentState
+
+IDP_EXTRACTION_PROMPT = """You are a specialized medical facility information extractor.
+
+Given a facility's raw free-form text data (procedure, equipment, capability arrays),
+extract and return STRUCTURED facts in this JSON format:
+
+{
+  "facility_name": "...",
+  "parsed_procedures": ["Performs emergency cesarean sections", ...],
+  "parsed_equipment": ["Has Siemens CT scanner", ...],
+  "parsed_capabilities": ["Level II trauma center", "24/7 emergency care", ...],
+  "inferred_specialties": ["generalSurgery", "emergencyMedicine", ...],
+  "facility_level": "hospital|clinic|specialist_center",
+  "confidence_flags": ["procedure X claimed but no supporting equipment listed", ...]
+}
+
+RULES:
+- Extract ONLY facts directly stated in the data. Do not infer from general knowledge.
+- Map capabilities to standard specialty names (camelCase): cardiology, ophthalmology, etc.
+- Flag any contradictions between procedure claims and equipment lists.
+- Each fact must be a clear, declarative English statement.
+- Empty arrays [] mean "no data found" — this is a valid signal, not missing data."""
+
+def idp_extraction_node(state: AgentState) -> dict:
+    """IDP Extraction — retrieves facility free-form text via Vector Search, then
+    uses the LLM to extract structured facts from unstructured procedure/equipment/
+    capability arrays. This is the core IDP innovation the challenge evaluates."""
+    # Step 1: Retrieve relevant facilities via semantic search
+    raw_facilities = query_vector_search(state["query"], num_results=5)
+
+    # Step 2: For each facility, extract structured facts via LLM
+    extractions = []
+    for facility in raw_facilities:
+        extraction = query_llm(IDP_EXTRACTION_PROMPT, json.dumps(facility))
+        extractions.append(extraction)
+
+    return {
+        "extraction_result": {"query": state["query"], "extractions": extractions},
+        "citations": state["citations"] + [
+            {"source": "idp_extraction", "facilities_processed": len(raw_facilities)}
+        ]
+    }
+```
+
+#### `src/nodes/synthesis.py` — Intelligent Synthesis Node (Core Feature #2)
+
+**This is "Intelligent Synthesis" (combines unstructured insights with structured schemas).** The node cross-references structured fields (facilityTypeId, specialties) against extracted free-form facts to find contradictions, confirm capabilities, and build a complete picture.
 
 ```python
 from src.tools.model_serving_tool import query_llm
 from src.state import AgentState
 
-SYNTHESIS_PROMPT = """Summarize this data into a clear, citation-backed answer.
-Include facility names, regions, and specific data points. Format as markdown."""
+SYNTHESIS_PROMPT = """You are a medical data synthesis expert for Ghana healthcare facilities.
+
+Your job is to produce a clear, citation-backed answer by CROSS-REFERENCING structured and unstructured data.
+
+CROSS-REFERENCING RULES:
+1. Compare structured field (facilityTypeId, specialties) against free-form text (procedure, equipment, capability).
+   - Flag if facilityTypeId="clinic" but capabilities describe hospital-level services (trauma, ICU).
+   - Flag if specialties list "ophthalmology" but no eye-related procedures or equipment found.
+   - Confirm when structured and unstructured data agree (higher confidence answer).
+2. Note data completeness: if a facility has procedures but zero equipment, say so explicitly.
+3. Every claim MUST cite the specific facility name, field, and value that supports it.
+
+OUTPUT FORMAT (Markdown):
+### Answer
+[Direct answer to the user's question]
+
+### Supporting Evidence
+| Facility | Field | Value | Confidence |
+|---|---|---|---|
+| [name] | [field] | [value] | High/Medium/Low |
+
+### Data Quality Notes
+[Any contradictions, gaps, or flags discovered during cross-referencing]
+"""
 
 def synthesis_node(state: AgentState) -> dict:
-    """Synthesis node — merges results from whichever agent ran, formats a user-facing
-    answer with citations, and logs the full trace via MLflow."""
-    raw = state.get("sql_result") or state.get("search_result") or state.get("anomaly_result") or state.get("geo_result")
-    answer = query_llm(SYNTHESIS_PROMPT, str(raw))
+    """Synthesis node — cross-references structured fields against unstructured
+    free-form text extractions. Produces citation-backed answers with data quality flags.
+    This implements 'Intelligent Synthesis' (Core Feature #2)."""
+    # Gather all results from whichever agent(s) ran
+    raw_parts = []
+    if state.get("sql_result"):
+        raw_parts.append(f"SQL/Genie result:\n{state['sql_result']}")
+    if state.get("search_result"):
+        raw_parts.append(f"Vector Search result:\n{state['search_result']}")
+    if state.get("extraction_result"):
+        raw_parts.append(f"IDP Extraction result:\n{state['extraction_result']}")
+    if state.get("anomaly_result"):
+        raw_parts.append(f"Anomaly detection result:\n{state['anomaly_result']}")
+    if state.get("geo_result"):
+        raw_parts.append(f"Geospatial result:\n{state['geo_result']}")
+
+    combined = "\n---\n".join(raw_parts) if raw_parts else "No results found."
+    answer = query_llm(SYNTHESIS_PROMPT, combined)
     return {"final_answer": answer}
 ```
 
@@ -697,21 +819,84 @@ with col_map:
 
 ---
 
-### Surface — Map + MLflow + Polish
+### Surface — Map + Medical Deserts + Planning + MLflow
 
-- Folium map with color-coded markers (hospital=blue, clinic=green, etc.)
-- MLflow `@mlflow.trace` decorators on each agent node for step-level citation trail
+#### Folium Map (with medical desert overlay)
+
+- Color-coded markers: hospital=blue, clinic=green, pharmacy=orange, dentist=purple, doctor=gray
+- **Medical desert overlay** (this directly addresses the challenge title "Bridging Medical Deserts" — 25% of scoring):
+  - Pre-compute at startup: for each key specialty (generalSurgery, emergencyMedicine, ophthalmology, cardiology, pediatrics), find regions where no facility offers it
+  - Overlay translucent red circles on the map for desert zones
+  - User can toggle specialties via sidebar dropdown
+  - Data source: Genie query `SELECT region_normalized, specialties FROM ghana_facilities` → local Python finds gaps
+
+#### Planning System — Core Feature #3
+
+> Challenge: *"Think creatively how you could include a planning system which is easily accessible and could get adopted across experience levels and age groups."*
+
+**Design: A "Mission Planner" tab in the Streamlit app** — not a separate tool, integrated right next to the chat and map. Accessible to everyone from a field coordinator to an executive director.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Tab: 💬 Ask Agent  │  Tab: 📋 Mission Planner  │  Tab: 🗺️ Map  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─── Summary Cards (auto-populated at startup) ─────────┐ │
+│  │  987 Facilities  │  67 NGOs  │  12 Flagged  │  4 Deserts│ │
+│  └───────────────────────────────────────────────────────┘ │
+│                                                             │
+│  ┌─── Where to Deploy Next ──────────────────────────────┐ │
+│  │  Select specialty:  [ ophthalmology        ▼ ]        │ │
+│  │                                                        │ │
+│  │  🔴 PRIORITY 1: Upper East Region                     │ │
+│  │     0 facilities with ophthalmology                    │ │
+│  │     Nearest: Tamale Eye Center (142 km away)           │ │
+│  │     Population at risk: ~1.2M                          │ │
+│  │                                                        │ │
+│  │  🟡 PRIORITY 2: Savannah Region                       │ │
+│  │     1 clinic (no surgical capability)                  │ │
+│  │     Nearest hospital-grade: Kumasi (287 km)            │ │
+│  │                                                        │ │
+│  │  ✅ COVERED: Greater Accra (8 facilities)              │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                             │
+│  ┌─── Flagged Facilities (need verification) ────────────┐ │
+│  │  ⚠️ Holy Family Hospital, Techiman                    │ │
+│  │     Claims: laparoscopic surgery                       │ │
+│  │     Missing: laparoscope, insufflator                  │ │
+│  │     Verdict: PROCEDURE-EQUIPMENT GAP                   │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                             │
+│  [ 📥 Export Report as PDF ]                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**How it works:**
+1. **Summary Cards** — On app startup, run 4 Genie queries: `COUNT(*)` facilities, `COUNT(*)` NGOs, count flagged anomalies, count desert regions. Cache results in `st.session_state`.
+2. **"Where to Deploy Next"** — User selects a specialty from a dropdown. The app runs: (a) Genie query to find regions with zero or few facilities for that specialty, (b) local geospatial to compute distances to nearest alternative, (c) LLM to rank priorities and generate plain-English recommendations.
+3. **Flagged Facilities** — Pre-computed by running the Medical Reasoning node over all facilities at startup (or top 50 by anomaly score). Shows VERDICT + REASON + EVIDENCE.
+4. **Export** — `st.download_button` to export the planning report as a PDF or CSV.
+
+**Why this design is accessible:**
+- No query syntax required — dropdown-driven, point-and-click
+- Color-coded priorities (red/yellow/green) — intuitive for any age
+- Plain English recommendations — no medical jargon
+- Works on tablet/phone (Streamlit responsive layout)
+
+#### MLflow Tracing
+
+- MLflow `@mlflow.trace` decorators on each agent node for row-level citation trail
 - Basic `try/except` error handling on all Databricks SDK calls
 
 ### Stretch Goals — Clear Path Forward
 
 | Stretch Goal | Technology | How to Add | Docs |
 |---|---|---|---|
-| **Geospatial cold-spots** | Local Python + Folium | Pre-compute at startup for common specialties, overlay red circles on Folium map | — |
-| **Planning dashboard** | Streamlit | Add summary cards (flagged facilities, desert regions) above the chat | [docs.streamlit.io](https://docs.streamlit.io/) |
+| **Agentic-step citations** | MLflow Tracing | Add `@mlflow.trace` to each node + log inputs/outputs per reasoning call (challenge explicitly asks for this) | [docs.databricks.com/en/mlflow/llm-tracing](https://docs.databricks.com/en/mlflow/llm-tracing/) |
 | **Composite queries** | LangGraph fan-out | Supervisor routes to multiple agent nodes in parallel (SQL + RAG), synthesis merges both | [langchain-ai.github.io/langgraph](https://langchain-ai.github.io/langgraph/) |
 | **Mosaic AI Agent deploy** | Mosaic AI Agent Framework | Wrap the LangGraph graph as a `ChatAgent`, deploy on Databricks serving endpoint | [docs.databricks.com/en/generative-ai/agent-framework](https://docs.databricks.com/en/generative-ai/agent-framework/author-agent.html) |
 | **LangGraph Studio** | LangGraph Platform | Visual debugger for the agent graph — step through nodes, inspect state | [langchain-ai.github.io/langgraph/concepts/langgraph_studio](https://langchain-ai.github.io/langgraph/concepts/langgraph_studio/) |
+| **PDF export** | FPDF / WeasyPrint | Export planning report to PDF from Streamlit | — |
 
 ---
 
@@ -819,13 +1004,14 @@ plasticSurgery, cardiacSurgery, geriatricsInternalMedicine, orthodontics
 
 ## Demo Script (5 Minutes)
 
-| Time      | Action                                                        | Shows |
-| --------- | ------------------------------------------------------------- | ----- |
-| 0:00–1:00 | Problem statement + architecture (LangGraph + Databricks)     | Vision, social impact |
-| 1:00–2:00 | Query: "What services does Korle Bu Teaching Hospital offer?" | RAG Agent → Vector Search |
-| 2:00–3:00 | Query: "Which facilities claim surgery but lack equipment?"   | Medical Reasoning → Model Serving |
-| 3:00–4:00 | Query: "Show medical deserts for ophthalmology"               | Geo Agent → Map overlay |
-| 4:00–5:00 | Query: "Where should the next mission go?"                    | Fan-out → SQL + Geo + LLM synthesis |
+| Time      | Action                                                        | Shows | Eval Criteria Hit |
+| --------- | ------------------------------------------------------------- | ----- | --- |
+| 0:00–0:45 | Problem statement + architecture (LangGraph + Databricks)     | Vision, social impact | Social Impact (25%) |
+| 0:45–1:30 | Query: "Extract capabilities for Korle Bu Teaching Hospital"  | **IDP Extraction** — structured facts from free-form text | **IDP Innovation (30%)** |
+| 1:30–2:30 | Query: "Which facilities claim surgery but lack equipment?"   | **Anomaly detection** — cross-references procedures vs equipment | Technical Accuracy (35%) |
+| 2:30–3:30 | Show **Mission Planner tab**: select ophthalmology → see desert regions + deployment priorities | **Planning System** — dropdown-driven, color-coded | Social Impact (25%) + UX (10%) |
+| 3:30–4:15 | Show **map**: red desert overlays + facility markers          | **Medical desert visualization** | Social Impact (25%) |
+| 4:15–5:00 | Show **MLflow trace**: citation trail for the last query      | **Citations** — step-level audit | Technical Accuracy (35%) |
 
 **Closing line**: "Every data point we extract represents a patient who could receive care sooner."
 
@@ -834,11 +1020,15 @@ plasticSurgery, cardiacSurgery, geriatricsInternalMedicine, orthodontics
 ## Resources
 
 ### Challenge
+- **Full Challenge Brief**: `resources/CHALLENGE.md` (committed to this repo)
+- **Prompts & Pydantic Models** (local): `resources/prompts_and_pydantic_models/` (sponsor-provided extraction pipeline)
+- **Prompts & Pydantic Models** (zip): https://drive.google.com/file/d/1CvMTA2DtwZxa9-sBsw57idCkIlnrN32r/view
 - **Dataset CSV**: https://drive.google.com/file/d/1qgmLHrJYu8TKY2UeQ-VFD4PQ_avPoZ3d/view
-- **Schema Docs**: https://drive.google.com/file/d/1CvMTA2DtwZxa9-sBsw57idCkIlnrN32r/view
-- **VF Agent Questions**: https://docs.google.com/document/d/1ETRk0KEcWUJExuhWKBQkw1Tq-D63Bdma1rPAwoaPiRI/edit
-- **VFMatch Globe**: https://vfmatch.org/explore?appMode=globe
+- **Schema Docs**: https://docs.google.com/document/d/1UDkH0WLmm3ppE3OpzSuZQC9_7w3HO1PupDLFVqzS_2g/edit?tab=t.0#heading=h.efyjxgdkfw8u
+- **VF Agent Questions**: https://docs.google.com/document/d/1ETRk0KEcWUJExuhWKBQkw1Tq-D63Bdma1rPAwoaPiRI/edit?tab=t.0#heading=h.dp75tt7nodhp
+- **VFMatch Globe** (map inspiration): https://vfmatch.org/explore?appMode=globe&viewState=8.261875521286015%2C28.8340078062746%2C1.4222445256432446
 - **Databricks x VF Blog**: https://www.databricks.com/blog/elevating-global-health-databricks-and-virtue-foundation
+- **Real-world context**: Databricks team is collaborating with VF to ship an agent by **June 7th, 2025**
 
 ### Databricks Documentation (Free Edition)
 - **Free Edition Signup**: https://signup.databricks.com
@@ -877,27 +1067,260 @@ plasticSurgery, cardiacSurgery, geriatricsInternalMedicine, orthodontics
 
 ---
 
-## Definition of Done
+## Definition of Done — Phase by Phase
 
-### MVP (Must ship)
+> Tests are only added where they catch real bugs and save debugging time. No test for the sake of testing.
 
-- [ ] Databricks workspace: Delta table in Unity Catalog with column descriptions
-- [ ] Genie Space configured with instructions and example queries
-- [ ] Vector Search index created over procedure/equipment/capability columns
-- [ ] LangGraph state graph: supervisor → conditional routing → agent nodes → synthesis
-- [ ] SQL Agent node calls Genie for structured queries
-- [ ] RAG Agent node calls Vector Search for semantic queries
-- [ ] Medical Reasoning node calls Model Serving for anomaly detection
-- [ ] MLflow `@mlflow.trace` on `run_agent()` for citation trail
-- [ ] Streamlit app calls `run_agent()` and displays results
-- [ ] Folium map with color-coded facility markers
-- [ ] Basic error handling (try/except on all Databricks SDK calls)
-- [ ] 5 demo queries work end-to-end
+### Project Structure for Tests
 
-### Stretch (if time permits)
+```
+tests/
+├── test_config.py              # Phase 1: Databricks connection
+├── test_tools.py               # Phase 1: SDK wrapper sanity checks
+├── test_graph.py               # Phase 2: LangGraph compiles + routes correctly
+├── test_nodes.py               # Phase 2: Each node returns expected state keys
+├── test_idp_extraction.py      # Phase 2: IDP extracts structured facts from sample text
+├── test_geospatial.py          # Phase 3: Haversine + desert detection math
+└── test_e2e.py                 # Phase 3: 5 demo queries run end-to-end
+```
 
-- [ ] Geospatial agent node: cold-spot detection + medical desert overlay on map
-- [ ] LangGraph fan-out: composite queries routing to multiple agents in parallel
-- [ ] Planning dashboard with summary cards
-- [ ] Mosaic AI Agent Framework deployment (LangGraph → ChatAgent → serving endpoint)
-- [ ] LangGraph Studio for visual debugging
+---
+
+### Phase 1 — Foundation (Databricks Setup)
+
+**Done when:**
+- [ ] CSV uploaded to Databricks Volume
+- [ ] Delta table created in Unity Catalog with column descriptions
+- [ ] `farmacy` → `pharmacy` typo fixed (5 records)
+- [ ] Region names normalized (53 variations → 16)
+- [ ] Duplicates deduplicated by name + city
+- [ ] Free-form JSON strings parsed
+- [ ] Vector Search endpoint created + index synced
+- [ ] Genie Space configured with instructions + example SQL
+- [ ] `src/config.py` connects to workspace without errors
+- [ ] `.env` populated with all IDs (catalog, schema, genie_space_id, vs_index)
+
+**Tests (run locally, verify Databricks connectivity):**
+```python
+# tests/test_config.py
+def test_databricks_connection():
+    """Verify .env is loaded and SDK client can authenticate."""
+    from src.config import db_client
+    # Should not raise — proves token + host are valid
+    clusters = db_client.clusters.list()
+    assert clusters is not None
+
+# tests/test_tools.py
+def test_genie_returns_response():
+    """Smoke test: Genie responds to a simple count query."""
+    from src.tools.genie_tool import query_genie
+    result = query_genie("How many rows are in the table?")
+    assert "results" in result or "sql" in result
+
+def test_vector_search_returns_results():
+    """Smoke test: Vector Search returns non-empty for a known term."""
+    from src.tools.vector_search_tool import query_vector_search
+    results = query_vector_search("cardiology")
+    assert len(results) > 0
+
+def test_model_serving_returns_text():
+    """Smoke test: Model Serving LLM returns a non-empty string."""
+    from src.tools.model_serving_tool import query_llm
+    answer = query_llm("You are a test.", "Say hello.")
+    assert len(answer) > 0
+```
+
+**Why tests here:** These are the most fragile part — tokens expire, endpoints go down, index names get typos. A 30-second smoke test saves 30 minutes of debugging.
+
+---
+
+### Phase 2 — Core (LangGraph + Agent Nodes)
+
+**Done when:**
+- [ ] `AgentState` schema defined with all fields
+- [ ] LangGraph `StateGraph` compiles without errors
+- [ ] Supervisor node classifies intent correctly for at least 4/5 demo queries
+- [ ] SQL Agent node calls Genie and returns `sql_result`
+- [ ] RAG Agent node calls Vector Search and returns `search_result`
+- [ ] IDP Extraction node extracts structured facts and returns `extraction_result`
+- [ ] Medical Reasoning node detects anomalies and returns `anomaly_result`
+- [ ] Synthesis node cross-references structured vs unstructured and returns `final_answer` with citations
+- [ ] `run_agent(query)` runs end-to-end and returns a markdown string
+- [ ] Streamlit app renders the answer
+
+**Tests (verify graph logic + node contracts):**
+```python
+# tests/test_graph.py
+def test_graph_compiles():
+    """The LangGraph state graph must compile without errors."""
+    from src.graph import graph
+    assert graph is not None
+
+def test_route_sql_intent():
+    """Supervisor routes count queries to SQL agent."""
+    from src.nodes.supervisor import supervisor_node
+    result = supervisor_node({"query": "How many hospitals have cardiology?", "citations": []})
+    assert result["intent"] == "SQL"
+
+def test_route_search_intent():
+    """Supervisor routes facility lookup queries to SEARCH agent."""
+    from src.nodes.supervisor import supervisor_node
+    result = supervisor_node({"query": "What services does Korle Bu offer?", "citations": []})
+    assert result["intent"] == "SEARCH"
+
+def test_route_anomaly_intent():
+    """Supervisor routes anomaly queries to ANOMALY agent."""
+    from src.nodes.supervisor import supervisor_node
+    result = supervisor_node({"query": "Facilities claiming surgery but lacking equipment?", "citations": []})
+    assert result["intent"] == "ANOMALY"
+
+# tests/test_nodes.py
+def test_sql_node_returns_expected_keys():
+    """SQL Agent must return sql_result and updated citations."""
+    from src.nodes.sql_agent import sql_agent_node
+    state = {"query": "How many hospitals?", "citations": []}
+    result = sql_agent_node(state)
+    assert "sql_result" in result
+    assert "citations" in result
+    assert len(result["citations"]) > 0
+
+def test_rag_node_returns_expected_keys():
+    """RAG Agent must return search_result and updated citations."""
+    from src.nodes.rag_agent import rag_agent_node
+    state = {"query": "cardiology services", "citations": []}
+    result = rag_agent_node(state)
+    assert "search_result" in result
+    assert len(result["search_result"]) > 0
+
+# tests/test_idp_extraction.py
+def test_idp_extraction_returns_structured_facts():
+    """IDP Extraction must return extraction_result with parsed data.
+    This is the CORE of the challenge (IDP Innovation = 30%)."""
+    from src.nodes.idp_extraction import idp_extraction_node
+    state = {"query": "Extract capabilities for Korle Bu Teaching Hospital", "citations": []}
+    result = idp_extraction_node(state)
+    assert "extraction_result" in result
+    assert "extractions" in result["extraction_result"]
+    assert len(result["extraction_result"]["extractions"]) > 0
+```
+
+**Why tests here:** The graph is pure logic — if routing is wrong, every downstream answer is wrong. Node contract tests (expected keys) catch integration bugs early. The IDP test validates the highest-scored feature (30%).
+
+---
+
+### Phase 2.5 — MVD Checkpoint
+
+**Gate — do NOT proceed to Phase 3 unless ALL pass:**
+
+```python
+# tests/test_e2e.py (run manually — not CI, these hit Databricks)
+DEMO_QUERIES = [
+    "How many hospitals have cardiology?",
+    "What services does Korle Bu Teaching Hospital offer?",
+    "Which facilities claim surgery but lack equipment?",
+    "Extract capabilities for Tamale Teaching Hospital",
+    "Where are ophthalmology deserts in Ghana?",
+]
+
+def test_mvd_at_least_3_queries_work():
+    """At least 3 of 5 demo queries must return a non-empty answer.
+    This is the Minimum Viable Demo gate."""
+    from src.graph import run_agent
+    successes = 0
+    for q in DEMO_QUERIES:
+        try:
+            answer = run_agent(q)
+            if answer and len(answer) > 20:
+                successes += 1
+        except Exception:
+            pass
+    assert successes >= 3, f"Only {successes}/5 demo queries worked. Fix before moving on."
+```
+
+**Why this gate:** If the agent can't answer 3/5 queries, nothing else matters. This prevents wasting time on polish when the core is broken.
+
+---
+
+### Phase 3 — Surface (Map + Deserts + Planning)
+
+**Done when:**
+- [ ] Folium map renders with color-coded markers (hospital=blue, clinic=green, pharmacy=orange, dentist=purple, doctor=gray)
+- [ ] Medical desert detection: regions with zero facilities for key specialties identified
+- [ ] Red translucent overlay on map for desert zones
+- [ ] "Mission Planner" tab: summary cards (total facilities, NGOs, flagged, desert count)
+- [ ] Specialty dropdown → ranked deployment priorities (red/yellow/green)
+- [ ] Flagged facilities list with VERDICT / REASON / EVIDENCE
+- [ ] MLflow `@mlflow.trace` on `run_agent()` for row-level citation trail
+- [ ] `try/except` error handling on all Databricks SDK calls
+- [ ] All 5 demo queries work end-to-end
+
+**Tests (verify local math + map logic):**
+```python
+# tests/test_geospatial.py
+def test_haversine_known_distance():
+    """Haversine between Accra and Kumasi should be ~250 km."""
+    from src.nodes.geospatial import haversine_km
+    d = haversine_km(5.6037, -0.1870, 6.6885, -1.6244)  # Accra → Kumasi
+    assert 240 < d < 260
+
+def test_desert_detection_finds_gaps():
+    """Given a list of facilities with specialties, detect missing specialties per region."""
+    from src.nodes.geospatial import find_desert_regions
+    sample = [
+        {"region_normalized": "Greater Accra", "specialties": '["cardiology","ophthalmology"]'},
+        {"region_normalized": "Northern", "specialties": '["familyMedicine"]'},
+    ]
+    deserts = find_desert_regions(sample, specialty="ophthalmology")
+    assert "Northern" in deserts  # No ophthalmology in Northern
+    assert "Greater Accra" not in deserts  # Has ophthalmology
+
+def test_desert_detection_empty_array_is_signal():
+    """[] in specialties means no specialties found — that region IS a desert for all."""
+    from src.nodes.geospatial import find_desert_regions
+    sample = [{"region_normalized": "Upper East", "specialties": "[]"}]
+    deserts = find_desert_regions(sample, specialty="cardiology")
+    assert "Upper East" in deserts
+```
+
+**Why tests here:** Haversine and desert detection are pure math — easy to test, easy to get wrong (lat/lon ordering, km vs miles). A wrong distance means wrong recommendations in the Planning System.
+
+**No tests needed for:**
+- Streamlit UI layout (visual — test manually)
+- Folium map rendering (visual — test manually)
+- MLflow tracing (verify in Databricks UI)
+- Planning dashboard styling (visual — test manually)
+
+---
+
+### Phase 4 — Stretch (if time permits)
+
+**Done when (any of these — each is independent):**
+- [ ] Agentic-step-level citations: `@mlflow.trace` on each individual node, MLflow UI shows per-step inputs/outputs
+- [ ] LangGraph fan-out: composite queries route to 2+ agents in parallel, synthesis merges both
+- [ ] PDF export: `st.download_button` generates a planning report PDF
+- [ ] Mosaic AI Agent Framework: LangGraph graph wrapped as `ChatAgent` on Databricks serving endpoint
+
+**No unit tests for stretch** — manual verification only. Time is better spent on demo polish.
+
+---
+
+### Test Runner
+
+```bash
+# Run all tests (requires .env with valid Databricks credentials)
+pytest tests/ -v
+
+# Run only local tests (no Databricks calls — fast)
+pytest tests/test_geospatial.py -v
+
+# Run only the MVD gate check
+pytest tests/test_e2e.py -v
+
+# Run smoke tests for Databricks connectivity
+pytest tests/test_config.py tests/test_tools.py -v
+```
+
+Add to `requirements.txt` (dev only):
+```
+pytest==9.0.2
+```
