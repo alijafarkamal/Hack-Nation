@@ -221,44 +221,46 @@ flowchart LR
 
 ```mermaid
 gantt
-    title 6-Hour Hackathon Sprint
-    dateFormat HH:mm
-    axisFormat %H:%M
+    title Hackathon Sprint — Milestone-Based
+    dateFormat X
+    axisFormat %s
 
-    section Phase 1 — Data
-    CSV load + clean + dedup           :p1a, 00:00, 30min
-    Geocoding + DuckDB setup           :p1b, after p1a, 30min
-    Vector store (ChromaDB)            :p1c, after p1b, 30min
+    section Foundation — Data Pipeline
+    CSV load + clean + dedup           :p1a, 0, 30
+    Geocoding + DuckDB setup           :p1b, after p1a, 30
+    Vector store (ChromaDB)            :p1c, after p1b, 30
 
-    section Phase 2 — Agents
-    Supervisor + SQL Agent             :p2a, after p1c, 30min
-    Vector Search Agent                :p2b, after p2a, 30min
-    Medical Reasoning Agent            :p2c, after p2b, 30min
-    Geospatial Agent + Synthesis       :p2d, after p2c, 30min
+    section Core — Agent Engine
+    Supervisor + SQL Agent             :p2a, after p1c, 30
+    Vector Search Agent                :p2b, after p2a, 30
+    Medical Reasoning Agent            :p2c, after p2b, 30
+    Geospatial Agent + Synthesis       :p2d, after p2c, 30
 
-    section ⭐ MVD Checkpoint
-    Minimum Viable Demo MUST work      :milestone, crit, 03:00, 0min
+    section MVD Checkpoint
+    Minimum Viable Demo MUST work      :milestone, crit, after p2d, 0
 
-    section Phase 3 — Frontend
-    Streamlit chat + map               :p3a, 03:00, 45min
-    Planning dashboard + polish        :p3b, after p3a, 45min
+    section Surface — Frontend & Map
+    Streamlit chat + map               :p3a, after p2d, 45
+    Planning dashboard (stretch)       :p3b, after p3a, 45
 
-    section Phase 4 — Demo Ready
-    Citations + basic error handling   :p4a, 04:30, 30min
-    Databricks integration (stretch)   :p4b, after p4a, 30min
-    Final demo walkthrough             :p4c, after p4b, 30min
+    section Launch — Demo Ready
+    Citations + basic error handling   :p4a, after p3b, 30
+    Databricks integration (stretch)   :p4b, after p4a, 30
+    Final demo walkthrough             :p4c, after p4b, 30
 ```
 
-### ⭐ Minimum Viable Demo (Hour 3 Checkpoint)
+> Milestones are sequential: **Foundation → Core → MVD Checkpoint → Surface → Launch**. Each task starts only after its predecessor completes. No clock times — work at your own pace, just respect the order.
 
-**Before building anything else, this E2E loop MUST work by hour 3:**
+### ⭐ Minimum Viable Demo (MVD Checkpoint)
+
+**Before moving to the Surface phase, this E2E loop MUST work:**
 
 1. CSV loaded, cleaned, geocoded into DuckDB + ChromaDB
 2. A single combined agent that handles at least SQL + Vector Search queries
 3. Streamlit running with text input → agent response → basic map
 4. At least 3 of the 5 demo queries returning reasonable answers
 
-**If you're not here by hour 3, STOP adding features and get this loop working.** A simple system that demos well beats a complex system that crashes.
+**If you're not here after Core, STOP adding features and get this loop working.** A simple system that demos well beats a complex system that crashes.
 
 ```mermaid
 flowchart LR
@@ -271,7 +273,7 @@ flowchart LR
 
 ---
 
-### Phase 1: Data Layer (0:00 – 1:30)
+### Phase 1: Foundation — Data Pipeline
 
 #### Task 1.1: Data Ingestion & Cleaning
 
@@ -292,6 +294,9 @@ df['facilityTypeId'] = df['facilityTypeId'].replace('farmacy', 'pharmacy')
 
 # 2. Parse JSON array columns
 def parse_json_list(val):
+    """Parse a JSON-encoded string (e.g. '["item1", "item2"]') into a Python list.
+    Handles NaN values, single-quote JSON, and malformed strings gracefully.
+    Returns an empty list on failure so downstream code never gets None."""
     if pd.isna(val):
         return []
     try:
@@ -362,6 +367,10 @@ df['specialty_count'] = df['specialties_parsed'].str.len()
 # 6. Deduplicate facility names (71 names appear >1 time)
 # Strategy: group by name + city, merge parsed arrays, keep row with most data
 def merge_rows(group):
+    """Deduplicate facilities that share the same name + city.
+    Picks the row with the most non-null fields as the 'best' record,
+    then unions all parsed list columns (procedures, equipment, etc.)
+    from every duplicate row into that single record. Returns one row."""
     if len(group) == 1:
         return group.iloc[0]
     best = group.loc[group.notna().sum(axis=1).idxmax()]  # row with most non-null
@@ -427,6 +436,10 @@ GHANA_CITY_COORDS = {
 }
 
 def geocode_facility(row):
+    """Look up latitude/longitude for a facility using its address_city.
+    Matches against the static GHANA_CITY_COORDS dictionary.
+    Returns (lat, lon) tuple if found, or (None, None) if the city
+    is missing or not in the lookup table."""
     city = row.get('address_city', '')
     if pd.notna(city) and city in GHANA_CITY_COORDS:
         return GHANA_CITY_COORDS[city]
@@ -513,7 +526,7 @@ File: src/data/vector_store.py
 - Store in ChromaDB with metadata: `{name, facility_id, facilityTypeId, region_normalized, address_city}`
 - Also create separate collections or tags for procedure-only, equipment-only, capability-only search
 
-### Phase 2: Agent Core (1:30 – 3:30)
+### Phase 2: Core — Agent Engine
 
 #### Task 2.1: Supervisor Agent (Router)
 
@@ -647,6 +660,10 @@ File: src/agents/geospatial.py
 from math import radians, sin, cos, sqrt, atan2
 
 def haversine_km(lat1, lon1, lat2, lon2):
+    """Calculate the great-circle distance in kilometers between two
+    geographic points using the Haversine formula. Used by radius search
+    and cold-spot detection to measure facility-to-facility or
+    grid-point-to-facility distances."""
     R = 6371  # Earth radius in km
     dlat = radians(lat2 - lat1)
     dlon = radians(lon2 - lon1)
@@ -654,7 +671,11 @@ def haversine_km(lat1, lon1, lat2, lon2):
     return R * 2 * atan2(sqrt(a), sqrt(1-a))
 
 def find_facilities_within_radius(df, center_lat, center_lon, radius_km, specialty=None):
-    """Find all facilities within radius_km of a point, optionally filtered by specialty."""
+    """Find all facilities within radius_km of a given center point.
+    Optionally filters by medical specialty (e.g. 'cardiology').
+    Returns a list of facility dicts sorted by distance (nearest first),
+    each including a 'distance_km' field. Used by the Geospatial Agent
+    to answer queries like 'Hospitals within 50km of Tamale with cardiology'."""
     results = []
     for _, row in df.iterrows():
         if pd.notna(row['latitude']) and pd.notna(row['longitude']):
@@ -698,7 +719,7 @@ COMMON_SPECIALTIES = ['cardiology', 'ophthalmology', 'generalSurgery',
 cold_spots_cache = {s: detect_cold_spots(df, s) for s in COMMON_SPECIALTIES}
 ```
 
-### Phase 3: Frontend & Map (3:30 – 5:00)
+### Phase 3: Surface — Frontend & Map
 
 #### Task 3.1: Streamlit Chat Interface
 
@@ -766,6 +787,11 @@ import folium
 from streamlit_folium import st_folium
 
 def create_ghana_map(facilities_df, highlights=None, cold_spots=None):
+    """Build an interactive Folium map of Ghana with color-coded facility markers.
+    Each marker shows a popup with name, type, city, specialties, and counts.
+    If cold_spots are provided, overlays red circles to visualize medical deserts
+    (areas where the nearest facility for a specialty is far away).
+    Returns a folium.Map object ready to render in Streamlit via st_folium."""
     # Center on Ghana
     m = folium.Map(location=[7.9465, -1.0232], zoom_start=7, tiles='CartoDB positron')
 
@@ -814,7 +840,7 @@ File: src/frontend/planning.py
 - Summary cards: flagged facilities count, medical desert regions, underserved specialties
 - Skip if behind — the chat + map IS the demo
 
-### Phase 4: Demo Ready (5:00 – 6:00)
+### Phase 4: Launch — Demo Ready
 
 #### Task 4.1: Citation System
 
@@ -1074,11 +1100,19 @@ mlflow.langchain.autolog()
 # Or manually trace agent steps:
 @mlflow.trace(name="sql_agent", span_type="AGENT")
 def sql_agent_call(query: str) -> dict:
+    """Traced wrapper for the SQL Agent. Takes a natural language query,
+    generates SQL, executes it against DuckDB/Genie, and returns the
+    generated SQL string, result rows, and cited row IDs. The @mlflow.trace
+    decorator logs inputs/outputs as a span for the citation trail."""
     # ... generate and execute SQL ...
     return {"sql": generated_sql, "results": results, "row_ids": cited_rows}
 
 @mlflow.trace(name="medical_reasoning", span_type="AGENT")
 def medical_reasoning_call(facility_data: dict) -> dict:
+    """Traced wrapper for the Medical Reasoning Agent. Takes facility data
+    (procedures, equipment, capabilities) and uses an LLM to detect
+    anomalies like procedure-equipment mismatches. Returns a verdict
+    (CLEAN/WARNING/FLAG), the reason, and supporting evidence."""
     # ... LLM reasoning over facility data ...
     return {"verdict": "FLAG", "reason": "...", "evidence": "..."}
 ```
@@ -1116,14 +1150,13 @@ response = w.serving_endpoints.query(
 
 ### 🏆 Why Databricks Integration Wins Points
 
-1. **Judges are from Databricks** — they want to see their platform used effectively
-2. **Genie as Text-to-SQL** replaces a hand-rolled SQL agent with a battle-tested, metadata-aware solution
+1. **Genie as Text-to-SQL** replaces a hand-rolled SQL agent with a battle-tested, metadata-aware solution
 3. **Vector Search** with auto-embedding is more impressive than local FAISS (shows production-readiness)
 4. **MLflow Tracing** directly addresses the citation stretch goal with professional-grade observability
 5. **Unity Catalog** shows data governance awareness — important for healthcare data
 6. **Aligns with VF's production path** — their actual agent ships on Databricks by June 7th
 
-### ⚠️ Databricks Pitfalls to Avoid
+### ⚠️ Databricks Risks
 
 - **Daily compute quotas** — If you exceed limits, compute pauses until next day. Do data upload + index creation EARLY (before hackathon if possible)
 - **No GPU access** — Fine-tuning is not feasible; use pre-built foundation models
@@ -1141,6 +1174,124 @@ response = w.serving_endpoints.query(
 | **Agent Tracing** | MLflow Tracing for citation stretch goal          | Skip if running out of time                            |
 | **Geospatial**    | Never (not a Databricks strength)                 | Always local (Haversine, spatial clustering)           |
 | **Frontend**      | Databricks Dashboards (only if no Streamlit time) | Streamlit (better UX, more flexible)                   |
+
+---
+
+## 🚀 Deployment Strategy
+
+Two deployment paths: **Local** (MVP, demo-day default) and **Databricks-hosted** (stretch, production-ready).
+
+```mermaid
+flowchart TB
+    subgraph LOCAL["🖥 Option A — Local Deployment (MVP)"]
+        direction TB
+        L1["Developer laptop or VM"]
+        L2["Python .venv + requirements.txt"]
+        L3["Streamlit serves frontend<br/><code>streamlit run src/frontend/app.py</code>"]
+        L4["DuckDB (SQL) + ChromaDB (vectors)<br/>both in-process, zero infra"]
+        L5["OpenAI API for LLM + embeddings"]
+        L1 --> L2 --> L3 --> L4
+        L3 --> L5
+    end
+
+    subgraph DB["☁️ Option B — Databricks-Hosted (Stretch)"]
+        direction TB
+        D1["Databricks Free Edition workspace"]
+        D2["Unity Catalog Delta table<br/>(source of truth)"]
+        D3["Genie Space — Text-to-SQL"]
+        D4["Vector Search index<br/>(auto-embedded)"]
+        D5["Model Serving — Llama 3.3 70B"]
+        D6["MLflow Tracing — citations"]
+        D7["Streamlit on laptop connects<br/>to Databricks via SDK + token"]
+        D1 --> D2 --> D3
+        D2 --> D4
+        D1 --> D5
+        D1 --> D6
+        D7 --> D3
+        D7 --> D4
+        D7 --> D5
+    end
+
+    style LOCAL fill:#EBF5FB,stroke:#2E86C1
+    style DB fill:#FEF9E7,stroke:#F39C12
+```
+
+### Option A — Local Deployment (MVP Default)
+
+**Use this for the hackathon demo.** Everything runs on one machine, zero cloud dependencies.
+
+| Component | How it runs | Port / path |
+|---|---|---|
+| **Streamlit** | `make run` → `streamlit run src/frontend/app.py` | `http://localhost:8501` |
+| **DuckDB** | In-process Python library, file at `data/ghana_facilities.duckdb` | No server needed |
+| **ChromaDB** | In-process Python library, persisted to `data/chroma/` | No server needed |
+| **LLM** | OpenAI API calls (`OPENAI_API_KEY` in `.env`) | Remote API |
+| **Embeddings** | OpenAI `text-embedding-3-small` | Remote API |
+
+**Setup (one command):**
+
+```bash
+make setup   # creates venv, installs deps, copies .env.example → .env
+# Edit .env with your OPENAI_API_KEY
+make run     # launches Streamlit on localhost:8501
+```
+
+**Pros:** Fast iteration, no cloud setup, works offline except for LLM calls, reliable for demo.
+**Cons:** No Databricks features (Genie, Vector Search, MLflow), single machine only.
+
+### Option B — Databricks-Hosted (Stretch)
+
+**Streamlit still runs locally**, but the backend services run on Databricks Free Edition. The local app connects to Databricks via the SDK using a Personal Access Token.
+
+| Component | Where it runs | How the local app connects |
+|---|---|---|
+| **Streamlit** | Local (`make run`) | — |
+| **SQL queries** | Databricks Genie (Text-to-SQL) | `databricks-sdk` → Genie API |
+| **Vector search** | Databricks Vector Search | `databricks-sdk` → VS query endpoint |
+| **LLM** | Databricks Model Serving (Llama 3.3 70B) | `databricks-sdk` → serving endpoint |
+| **Tracing** | MLflow on Databricks | `mlflow` SDK with Databricks tracking URI |
+| **Data** | Unity Catalog Delta table | Uploaded once via notebook |
+
+**Setup:**
+
+```bash
+# 1. Sign up at https://signup.databricks.com (Free Edition)
+# 2. Run notebooks/databricks_setup.py in a Databricks notebook to:
+#    - Upload CSV → Unity Catalog Delta table
+#    - Add column descriptions for Genie
+#    - Create Vector Search index
+#    - Create Genie Space with example queries
+# 3. Set these in .env:
+DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
+DATABRICKS_TOKEN=dapi...
+USE_DATABRICKS_GENIE=true
+USE_DATABRICKS_VECTOR_SEARCH=true
+USE_DATABRICKS_MODEL_SERVING=true
+# 4. Run locally as usual:
+make run
+```
+
+**Pros:** Impresses judges, production-grade infrastructure, Genie handles complex SQL, MLflow gives citation traceability.
+**Cons:** Network latency, daily compute quotas, requires pre-hackathon setup.
+
+### Recommended Approach
+
+```mermaid
+flowchart LR
+    A["Foundation + Core<br/><b>Build on Local</b><br/>DuckDB + ChromaDB<br/>Get MVP working"] --> B["MVD Checkpoint<br/><b>Does it demo?</b>"]
+    B -->|Yes| C["Surface<br/><b>Add Databricks</b><br/>Flip feature flags<br/>one by one"]
+    B -->|No| D["Surface<br/><b>Fix MVP</b><br/>Stay local<br/>Ship what works"]
+    C --> E["Launch<br/><b>Demo prep</b>"]
+    D --> E
+
+    style A fill:#3498DB,color:#fff
+    style B fill:#E74C3C,color:#fff
+    style C fill:#F39C12,color:#fff
+    style D fill:#95A5A6,color:#fff
+    style E fill:#2ECC71,color:#fff
+```
+
+> **Build local first. Flip to Databricks incrementally using feature flags.** Never be in a state where the app doesn't run.
 
 ---
 
@@ -1172,15 +1323,20 @@ response = w.serving_endpoints.query(
 
 ```python
 class FacilityFacts(BaseModel):
+    """Pydantic model representing the three free-form text columns extracted
+    from medical facility web pages. These are the core fields for IDP
+    (Intelligent Document Parsing) — each is a list of plain-English
+    declarative statements extracted by an LLM from the source HTML."""
+
     procedure: Optional[List[str]]
-        # "Specific clinical services—medical/surgical interventions and diagnostic
-        #  procedures (e.g., operations, endoscopy, imaging tests)"
+        # Specific clinical services — medical/surgical interventions and diagnostic
+        # procedures (e.g., operations, endoscopy, imaging tests)
     equipment: Optional[List[str]]
-        # "Physical medical devices and infrastructure—imaging machines, surgical/OR
-        #  technologies, monitors, lab analyzers, critical utilities"
+        # Physical medical devices and infrastructure — imaging machines, surgical/OR
+        # technologies, monitors, lab analyzers, critical utilities
     capability: Optional[List[str]]
-        # "Medical capabilities—trauma/emergency levels, specialized units, clinical
-        #  programs, accreditations, care setting, staffing, patient capacity"
+        # Medical capabilities — trauma/emergency levels, specialized units, clinical
+        # programs, accreditations, care setting, staffing, patient capacity
 ```
 
 ### Valid Medical Specialties (case-sensitive camelCase)
