@@ -2,54 +2,13 @@
 
 ---
 
-## 🎯 Mission Statement
+## Mission Statement
 
 Build an **Intelligent Document Parsing (IDP) Agent** that extracts, verifies, and reasons over medical facility data from Ghana (provided by the Virtue Foundation) to identify **medical deserts** and infrastructure gaps. The system must parse unstructured free-form text, synthesize it with structured facility schemas, detect anomalies, and present findings through an interactive map + natural language planning interface.
 
 ---
 
-## 📂 Project Structure
-
-```
-Hack-Nation/
-├── AGENT.md                      # This file — AI agent instructions
-├── README.md                     # Project overview for humans / judges
-├── requirements.txt              # Python dependencies (pinned)
-├── Makefile                      # make setup | make run
-├── .env.example                  # Required env vars template
-├── .gitignore
-├── data/
-│   ├── ghana_facilities.csv      # Raw dataset (987 rows)
-│   ├── ghana_city_coords.json    # Static geocoding lookup
-│   └── ghana_facilities.duckdb   # Generated — local SQL database
-├── src/
-│   ├── __init__.py
-│   ├── config.py                 # Env vars, constants, feature flags
-│   ├── data/
-│   │   ├── __init__.py
-│   │   ├── loader.py             # CSV → cleaned DataFrame
-│   │   ├── geocoder.py           # City → lat/lon lookup + fallback
-│   │   ├── sql_setup.py          # DuckDB normalized tables
-│   │   └── vector_store.py       # ChromaDB / Databricks Vector Search
-│   ├── agents/
-│   │   ├── __init__.py
-│   │   ├── supervisor.py         # Intent classifier + multi-agent router
-│   │   ├── sql_agent.py          # Structured queries (counts, aggregations)
-│   │   ├── vector_agent.py       # Semantic search over free-form text
-│   │   ├── medical_reasoning.py  # Anomaly detection + cross-referencing
-│   │   ├── geospatial.py         # Haversine, cold-spot detection
-│   │   └── synthesis.py          # Merge sub-agent outputs + citations
-│   └── frontend/
-│       ├── app.py                # Streamlit entry point
-│       ├── map_component.py      # Folium map builder
-│       └── planning.py           # Dashboard cards + recommendations
-└── notebooks/
-    └── databricks_setup.py       # Unity Catalog upload, Genie config, VS index
-```
-
----
-
-## 📊 Evaluation Criteria (Memorize This)
+## Evaluation Criteria
 
 | Criterion              | Weight  | What Wins                                                                                                                              |
 | ---------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -60,563 +19,597 @@ Hack-Nation/
 
 ---
 
-## 📁 Dataset Analysis (ACTUAL DATA — 987 Rows)
+## Architecture — Databricks-Native
+
+The challenge recommends this base stack:
+
+> **Agentic orchestrator:** LangGraph, LlamaIndex, CrewAI
+> **ML lifecycle:** MLflow
+> **RAG:** Databricks, FAISS, LanceDB
+> **Text2SQL:** Genie
+
+Our architecture: **LangGraph** orchestrates a multi-agent graph locally. Each agent node calls **Databricks Free Edition** services as tools. **MLflow** traces every step. **Streamlit** renders the frontend.
+
+```mermaid
+flowchart TD
+    subgraph FE["Frontend (Local)"]
+        ST["Streamlit App"]
+        MAP["Folium Map"]
+    end
+
+    subgraph LG["LangGraph Agent Graph (Local)"]
+        SUP["Supervisor Node<br/><i>Intent classification + routing</i>"]
+        SQL_N["SQL Agent Node<br/><i>Calls Genie</i>"]
+        VEC_N["RAG Agent Node<br/><i>Calls Vector Search</i>"]
+        MED_N["Medical Reasoning Node<br/><i>Calls Model Serving</i>"]
+        GEO_N["Geospatial Node<br/><i>Local Haversine</i>"]
+        SYN["Synthesis Node<br/><i>Merges results + citations</i>"]
+    end
+
+    subgraph DB["Databricks Free Edition (Remote)"]
+        UC["Unity Catalog — Delta Table"]
+        GN["Genie — Text-to-SQL"]
+        VS["Vector Search — RAG"]
+        MS["Model Serving — Llama 3.3 70B"]
+        ML["MLflow — Tracing + Citations"]
+    end
+
+    ST -->|"User query"| SUP
+    SUP -->|STRUCTURED| SQL_N
+    SUP -->|SEMANTIC| VEC_N
+    SUP -->|ANOMALY| MED_N
+    SUP -->|GEOSPATIAL| GEO_N
+    SQL_N -->|"SDK call"| GN
+    VEC_N -->|"SDK call"| VS
+    MED_N -->|"SDK call"| MS
+    GN --> UC
+    VS --> UC
+    SQL_N --> SYN
+    VEC_N --> SYN
+    MED_N --> SYN
+    GEO_N --> SYN
+    SYN --> ST
+    SYN -->|"Log trace"| ML
+    ST --> MAP
+
+    style FE fill:#EBF5FB,stroke:#2E86C1
+    style LG fill:#E8F8F5,stroke:#1ABC9C
+    style DB fill:#FEF9E7,stroke:#F39C12
+```
+
+### How Each Databricks Feature Maps to the Challenge
+
+| Challenge Requirement | Databricks Feature | What It Does | Docs |
+|---|---|---|---|
+| **Structured queries** (counts, aggregations) | **Genie** (Text-to-SQL) | Takes natural language, generates SQL, executes against Delta table, returns results | [docs.databricks.com/en/genie](https://docs.databricks.com/en/genie/) |
+| **Semantic search** over free-form text | **Mosaic AI Vector Search** | Auto-embeds procedure/equipment/capability columns, returns top-k matches by semantic similarity | [docs.databricks.com/en/generative-ai/vector-search](https://docs.databricks.com/en/generative-ai/vector-search) |
+| **Anomaly detection** (procedure-equipment gaps) | **Model Serving** (Llama 3.3 70B) | LLM reasons over facility data to detect mismatches between claimed procedures and listed equipment | [docs.databricks.com/en/machine-learning/model-serving](https://docs.databricks.com/en/machine-learning/model-serving) |
+| **Data storage** with governance | **Unity Catalog** | Managed Delta table with column descriptions — makes Genie smarter and shows data governance | [docs.databricks.com/en/data-governance/unity-catalog](https://docs.databricks.com/en/data-governance/unity-catalog) |
+| **Citation trail** (which data produced each answer) | **MLflow Tracing** | Logs inputs/outputs of each step, creating an audit trail of which rows were used | [docs.databricks.com/en/mlflow](https://docs.databricks.com/en/mlflow) |
+| **Data cleaning** + geocoding | **Notebooks** | Python notebook for one-time CSV cleaning, region normalization, geocoding, upload to Unity Catalog | [docs.databricks.com/en/notebooks](https://docs.databricks.com/en/notebooks) |
+
+### What Runs Where
+
+| Component | Runs On | Technology | Docs |
+|---|---|---|---|
+| **Agent orchestration** | Local | LangGraph (state graph with supervisor routing) | [langchain-ai.github.io/langgraph](https://langchain-ai.github.io/langgraph/) |
+| **Frontend** | Local | Streamlit + Folium map | [docs.streamlit.io](https://docs.streamlit.io/) |
+| **Geospatial** | Local | Python Haversine + numpy | — |
+| **Text-to-SQL** | Databricks | Genie | [docs.databricks.com/en/genie](https://docs.databricks.com/en/genie/) |
+| **RAG / Semantic search** | Databricks | Vector Search | [docs.databricks.com/en/generative-ai/vector-search](https://docs.databricks.com/en/generative-ai/vector-search) |
+| **LLM inference** | Databricks | Model Serving (Llama 3.3 70B) | [docs.databricks.com/en/machine-learning/model-serving](https://docs.databricks.com/en/machine-learning/model-serving) |
+| **Agent tracing** | Databricks | MLflow Tracing | [docs.databricks.com/en/mlflow](https://docs.databricks.com/en/mlflow) |
+| **Data storage** | Databricks | Unity Catalog Delta table | [docs.databricks.com/en/data-governance/unity-catalog](https://docs.databricks.com/en/data-governance/unity-catalog) |
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Docs |
+|---|---|---|
+| **Agent Orchestration** | **LangGraph** (multi-agent state graph) | [langchain-ai.github.io/langgraph](https://langchain-ai.github.io/langgraph/) |
+| **Data Storage** | Databricks Unity Catalog (Delta table) | [docs.databricks.com/en/data-governance/unity-catalog](https://docs.databricks.com/en/data-governance/unity-catalog) |
+| **Text-to-SQL** | Databricks Genie | [docs.databricks.com/en/genie](https://docs.databricks.com/en/genie/) |
+| **RAG / Semantic Search** | Databricks Mosaic AI Vector Search | [docs.databricks.com/en/generative-ai/vector-search](https://docs.databricks.com/en/generative-ai/vector-search) |
+| **LLM** | Databricks Model Serving (Llama 3.3 70B) | [docs.databricks.com/en/machine-learning/model-serving](https://docs.databricks.com/en/machine-learning/model-serving) |
+| **Embeddings** | Databricks `gte-large-en` (auto via Vector Search) | [docs.databricks.com/en/generative-ai/vector-search](https://docs.databricks.com/en/generative-ai/vector-search) |
+| **ML Lifecycle / Tracing** | MLflow Tracing | [docs.databricks.com/en/mlflow](https://docs.databricks.com/en/mlflow) |
+| **Data Cleaning** | Databricks Notebooks (Python + Spark SQL) | [docs.databricks.com/en/notebooks](https://docs.databricks.com/en/notebooks) |
+| **Frontend** | Streamlit | [docs.streamlit.io](https://docs.streamlit.io/) |
+| **Map** | Folium + streamlit-folium | [python-visualization.github.io/folium](https://python-visualization.github.io/folium/) |
+| **Geospatial** | Python (Haversine, numpy) — local | — |
+| **Language** | Python 3.11+ | — |
+
+### .env.example
+
+```bash
+# === Databricks (primary backend) ===
+DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
+DATABRICKS_TOKEN=dapi...                       # Personal Access Token
+DATABRICKS_CATALOG=your_catalog                # Unity Catalog name
+DATABRICKS_SCHEMA=your_schema                  # Schema within catalog
+GENIE_SPACE_ID=...                             # From Genie Space setup
+VECTOR_SEARCH_INDEX=your_catalog.your_schema.ghana_facilities_index
+VECTOR_SEARCH_ENDPOINT=ghana-medical-vs
+
+# === LLM (fallback if Model Serving quota exceeded) ===
+OPENAI_API_KEY=sk-...                          # Optional fallback
+```
+
+### requirements.txt
+
+```
+# Agent orchestration
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-openai>=0.2.0
+
+# Databricks SDK
+databricks-sdk>=0.30.0
+databricks-vectorsearch>=0.40
+mlflow>=2.16.0
+
+# Frontend
+streamlit>=1.38.0
+streamlit-folium>=0.22.0
+folium>=0.17.0
+
+# Data (local utilities)
+pandas>=2.0.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
+```
+
+### Project Structure
+
+```
+Hack-Nation/
+├── AGENT.md
+├── README.md
+├── requirements.txt
+├── .env.example
+├── .gitignore
+├── data/
+│   └── ghana_city_coords.json        # Static geocoding lookup (local)
+├── src/
+│   ├── app.py                        # Streamlit entry point
+│   ├── config.py                     # Load .env, Databricks client init
+│   ├── graph.py                      # LangGraph state graph definition (supervisor + nodes)
+│   ├── state.py                      # Pydantic state schema for the agent graph
+│   ├── nodes/
+│   │   ├── supervisor.py             # Supervisor node — classifies intent, routes to agents
+│   │   ├── sql_agent.py              # SQL Agent node — calls Databricks Genie
+│   │   ├── rag_agent.py              # RAG Agent node — calls Databricks Vector Search
+│   │   ├── medical_reasoning.py      # Medical Reasoning node — anomaly detection via Model Serving
+│   │   ├── geospatial.py             # Geospatial node — Haversine, cold-spots (local)
+│   │   └── synthesis.py              # Synthesis node — merges results, formats citations
+│   ├── tools/
+│   │   ├── genie_tool.py             # Databricks Genie SDK wrapper
+│   │   ├── vector_search_tool.py     # Databricks Vector Search SDK wrapper
+│   │   └── model_serving_tool.py     # Databricks Model Serving SDK wrapper
+│   ├── databricks_clients.py         # Shared Databricks client initialization
+│   └── map_component.py              # Folium map builder
+└── notebooks/
+    └── 01_setup_databricks.py        # Run once in Databricks: clean → upload → index → Genie
+```
+
+---
+
+## Dataset Analysis (987 Rows)
 
 ### File: `Virtue_Foundation_Ghana_v0_3_-_Sheet1.csv`
 
 - **987 rows** total: **920 facilities** + **67 NGOs**
 - Download: https://drive.google.com/file/d/1qgmLHrJYu8TKY2UeQ-VFD4PQ_avPoZ3d/view
 
-### ⚠️ CRITICAL DATA ISSUES (Must Handle)
+### Critical Data Issues (Handle in Notebook)
 
-1. **NO LATITUDE/LONGITUDE COLUMNS** — The dataset has NO geocoordinates. You MUST geocode from `address_city` + `address_stateOrRegion` + `address_country`. Use a Ghana city centroid lookup table or Google Geocoding API.
-2. **Sparse structured fields** — Only 23/987 have `capacity` (bed count), 3 have `numberDoctors`, 2 have `area`. Anomaly detection CANNOT rely on these fields alone.
-3. **Dirty region names** — `address_stateOrRegion` has 53 variations for Ghana's 16 regions (e.g., "Ashanti", "Ashanti Region", "ASHANTI"). Must normalize.
-4. **71 duplicate facility names** — Same facility appears in multiple rows (e.g., "Korle Bu Teaching Hospital" × 4). Must deduplicate or merge.
-5. **Typo in facilityTypeId** — "farmacy" instead of "pharmacy" (5 records). Fix on load.
-6. **Free-form fields are JSON arrays stored as strings** — Must parse with `json.loads()`.
+1. **NO LATITUDE/LONGITUDE** — Geocode from `address_city` using a static lookup table
+2. **Sparse structured fields** — capacity (23 rows), numberDoctors (3 rows), area (2 rows)
+3. **Dirty region names** — 53 variations for 16 regions. Normalize in notebook before upload
+4. **71 duplicate facility names** — Deduplicate by name + city, merge parsed arrays
+5. **Typo: "farmacy"** — Fix to "pharmacy" (5 records)
+6. **Free-form fields are JSON strings** — Parse with `json.loads()` in notebook
 
-### Actual Column List (41 columns)
+### Column Coverage
 
-```
-source_url, name, pk_unique_id, mongo DB, specialties, procedure, equipment,
-capability, organization_type, content_table_id, phone_numbers, email,
-websites, officialWebsite, yearEstablished, acceptsVolunteers, facebookLink,
-twitterLink, linkedinLink, instagramLink, logo, address_line1, address_line2,
-address_line3, address_city, address_stateOrRegion, address_zipOrPostcode,
-address_country, address_countryCode, countries, missionStatement,
-missionStatementLink, organizationDescription, facilityTypeId, operatorTypeId,
-affiliationTypeIds, description, area, numberDoctors, capacity, unique_id
-```
-
-### Data Coverage Stats
-
-| Field                 | Non-Null | Coverage                    |
-| --------------------- | -------- | --------------------------- |
-| name                  | 987      | 100%                        |
-| specialties           | 906      | 92%                         |
-| capability            | 927      | 94% — **784 have >0 items** |
-| procedure             | 779      | 79% — **202 have >0 items** |
-| equipment             | 718      | 73% — **91 have >0 items**  |
-| address_city          | 923      | 94%                         |
-| address_stateOrRegion | 254      | **26% — very sparse**       |
-| facilityTypeId        | 717      | 73%                         |
-| description           | 658      | 67%                         |
-| capacity              | 23       | **2% — almost empty**       |
-| numberDoctors         | 3        | **<1% — almost empty**      |
-
-### Top Cities (for demo queries)
-
-| City       | Count |
-| ---------- | ----- |
-| Accra      | 309   |
-| Kumasi     | 92    |
-| Tema       | 44    |
-| Takoradi   | 22    |
-| Tamale     | 20    |
-| Cape Coast | 13    |
-
-### Facility Types
-
-| Type                    | Count |
-| ----------------------- | ----- |
-| hospital                | 457   |
-| clinic                  | 237   |
-| dentist                 | 17    |
-| farmacy (typo→pharmacy) | 5     |
-| doctor                  | 1     |
-| NULL                    | 270   |
+| Field                 | Coverage | Notes |
+| --------------------- | -------- | ----- |
+| name                  | 100%     | |
+| specialties           | 92%      | |
+| capability            | 94%      | 784 have >0 items |
+| procedure             | 79%      | 202 have >0 items |
+| equipment             | 73%      | 91 have >0 items |
+| address_city          | 94%      | |
+| address_stateOrRegion | **26%**  | Very sparse — infer from city |
+| facilityTypeId        | 73%      | |
+| capacity              | **2%**   | Almost empty |
+| numberDoctors         | **<1%**  | Almost empty |
 
 ### Free-Form Text Format
 
-These columns contain **JSON arrays of declarative English strings**:
-
 ```json
-// procedure example
 ["Performs emergency cesarean sections", "Offers hemodialysis treatment 3 times weekly"]
-
-// equipment example
 ["Optical Coherence Tomography (OCT) machine", "Fundus photography equipment"]
-
-// capability example
 ["Emergency services operate 24/7", "Has 87 French and Ghanaian medical professionals"]
 ```
 
-**Many rows have empty arrays `[]` — this is normal.** The IDP challenge is extracting insights from the non-empty ones and cross-referencing them.
-
 ---
 
-## 🏗 Architecture
-
-### System Design: Multi-Agent with Supervisor Router
-
-```mermaid
-flowchart TD
-    Q["🧑 User Query<br/><i>Natural Language Input</i>"]
-    SUP["🧠 Supervisor Agent<br/>Intent Classification & Routing<br/><i>Can fan out to 1–3 sub-agents per query</i>"]
-    SQL["📊 SQL / Data<br/>Query Agent"]
-    VEC["🔍 Vector Search<br/>Agent"]
-    MED["🏥 Medical<br/>Reasoning Agent"]
-    GEO["🌍 Geospatial<br/>Calculator"]
-    SYN["📝 Synthesis & Citation Layer<br/><i>Merges sub-agent results, adds row-level citations</i>"]
-    OUT["💬 Response + 🗺 Map Visualization"]
-
-    Q --> SUP
-    SUP -->|STRUCTURED_QUERY| SQL
-    SUP -->|SEMANTIC_SEARCH| VEC
-    SUP -->|ANOMALY_DETECTION| MED
-    SUP -->|GEOSPATIAL / PLANNING| GEO
-    SQL --> SYN
-    VEC --> SYN
-    MED --> SYN
-    GEO --> SYN
-    SYN --> OUT
-
-    style SUP fill:#4A90D9,color:#fff
-    style SYN fill:#2ECC71,color:#fff
-    style OUT fill:#F39C12,color:#fff
-```
-
-#### Multi-Agent Composition (Composite Queries)
-
-Many Must-Have queries require **multiple sub-agents**. The Supervisor handles this by **fan-out / fan-in**:
-
-```mermaid
-flowchart LR
-    SUP["Supervisor"] --> |"Q2.1: Hospitals treating X within Y km"| FAN{"Fan-Out"}
-    FAN --> SQL["SQL Agent<br/><i>Find facilities with specialty</i>"]
-    FAN --> GEO["Geo Agent<br/><i>Filter by radius</i>"]
-    SQL --> MERGE["Synthesis<br/><i>Intersect results</i>"]
-    GEO --> MERGE
-    MERGE --> R["Cited Response + Map"]
-```
-
-**Routing rules for composite queries:**
-
-| Query Pattern | Agents Called (in order) | Composition |
-|---|---|---|
-| "How many hospitals have X?" | SQL only | Direct |
-| "What services does [Facility] offer?" | Vector Search only | Direct |
-| "Facilities claiming X but lacking Y?" | SQL (filter) → Medical Reasoning (verify) | Sequential |
-| "Hospitals within X km treating Y?" | SQL (specialty filter) + Geo (radius) | Parallel → Intersect |
-| "Show medical deserts for X" | SQL (find all with specialty) → Geo (cold-spots) | Sequential |
-| "Where should the next mission go?" | SQL + Geo + Medical → Synthesis (rank) | Parallel → Rank |
-
-### Agent Components
-
-| Component                   | Role                                                                          | Tech                                                         |
-| --------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| **Supervisor Agent**        | Intent classification, query routing                                          | LangGraph router node                                        |
-| **SQL/Data Query Agent**    | Structured queries (counts, aggregations, filters on normalized tables)       | **Databricks Genie** (primary) / DuckDB + LLM (fallback)     |
-| **Vector Search Agent**     | Semantic search over free-form text fields (procedure, equipment, capability) | **Databricks Vector Search** (primary) / ChromaDB (fallback) |
-| **Medical Reasoning Agent** | Cross-reference claims, detect anomalies, add medical context                 | LLM via Databricks Model Serving or OpenAI                   |
-| **Geospatial Calculator**   | Distance calculations, cold-spot detection using geocoded cities              | Haversine formula + Ghana city coordinates (local)           |
-| **Synthesis Layer**         | Combine sub-agent outputs, generate cited response                            | LLM + **MLflow Tracing** for step-level citations            |
-
----
-
-## 📋 Task Breakdown (6-Hour Sprint)
-
-### Sprint Timeline
+## Implementation — Milestone-Based
 
 ```mermaid
 gantt
-    title Hackathon Sprint — Milestone-Based
+    title Hackathon Sprint
     dateFormat X
     axisFormat %s
 
-    section Foundation — Data Pipeline
-    CSV load + clean + dedup           :p1a, 0, 30
-    Geocoding + DuckDB setup           :p1b, after p1a, 30
-    Vector store (ChromaDB)            :p1c, after p1b, 30
+    section Foundation — Databricks Setup
+    Notebook: clean + geocode + upload to UC     :p1a, 0, 40
+    Create Vector Search index                   :p1b, after p1a, 20
+    Configure Genie Space                        :p1c, after p1b, 20
 
-    section Core — Agent Engine
-    Supervisor + SQL Agent             :p2a, after p1c, 30
-    Vector Search Agent                :p2b, after p2a, 30
-    Medical Reasoning Agent            :p2c, after p2b, 30
-    Geospatial Agent + Synthesis       :p2d, after p2c, 30
+    section Core — LangGraph + Databricks Wiring
+    LangGraph state + graph scaffold             :p2a, after p1c, 20
+    Supervisor node + intent classification      :p2b, after p2a, 20
+    SQL Agent node (Genie)                       :p2c, after p2b, 20
+    RAG Agent node (Vector Search)               :p2d, after p2c, 20
+    Medical Reasoning node (Model Serving)       :p2e, after p2d, 20
+    Synthesis node + Streamlit wiring            :p2f, after p2e, 20
 
     section MVD Checkpoint
-    Minimum Viable Demo MUST work      :milestone, crit, after p2d, 0
+    Minimum Viable Demo MUST work                :milestone, crit, after p2f, 0
 
-    section Surface — Frontend & Map
-    Streamlit chat + map               :p3a, after p2d, 45
-    Planning dashboard (stretch)       :p3b, after p3a, 45
+    section Surface — Map + Polish
+    Folium map with facility markers             :p3a, after p2f, 30
+    MLflow tracing decorators                    :p3b, after p3a, 20
+    Citations + error handling                   :p3c, after p3b, 20
 
-    section Launch — Demo Ready
-    Citations + basic error handling   :p4a, after p3b, 30
-    Databricks integration (stretch)   :p4b, after p4a, 30
-    Final demo walkthrough             :p4c, after p4b, 30
+    section Stretch
+    Geospatial cold-spots on map                 :p4a, after p3c, 30
+    MLflow Tracing for citation trail            :p4b, after p4a, 30
+    Planning dashboard                           :p4c, after p4b, 30
 ```
 
-> Milestones are sequential: **Foundation → Core → MVD Checkpoint → Surface → Launch**. Each task starts only after its predecessor completes. No clock times — work at your own pace, just respect the order.
+### Foundation — Databricks Setup (Notebook)
 
-### ⭐ Minimum Viable Demo (MVD Checkpoint)
+**Run `notebooks/01_setup_databricks.py` once in a Databricks notebook.** This does all data work on Databricks — no local data pipeline needed.
 
-**Before moving to the Surface phase, this E2E loop MUST work:**
+#### Step 1: Upload + Clean Data
 
-1. CSV loaded, cleaned, geocoded into DuckDB + ChromaDB
-2. A single combined agent that handles at least SQL + Vector Search queries
-3. Streamlit running with text input → agent response → basic map
-4. At least 3 of the 5 demo queries returning reasonable answers
-
-**If you're not here after Core, STOP adding features and get this loop working.** A simple system that demos well beats a complex system that crashes.
-
-```mermaid
-flowchart LR
-    A["Streamlit Input"] --> B["Single Agent<br/>(SQL + Vector)"]
-    B --> C["Answer + Citations"]
-    C --> D["Map Update"]
-    style A fill:#3498DB,color:#fff
-    style D fill:#2ECC71,color:#fff
-```
-
----
-
-### Phase 1: Foundation — Data Pipeline
-
-#### Task 1.1: Data Ingestion & Cleaning
-
-```
-File: src/data/loader.py
-```
-
-**Critical preprocessing steps:**
+Ref: [Unity Catalog — Managed Tables](https://docs.databricks.com/en/data-governance/unity-catalog/create-tables.html)
 
 ```python
 import pandas as pd
-import json
+from pyspark.sql import functions as F
 
-df = pd.read_csv('data/ghana_facilities.csv')
+# Upload CSV to a Volume, then read
+df = spark.read.csv(
+    "/Volumes/your_catalog/your_schema/data/ghana_facilities.csv",
+    header=True, inferSchema=True
+)
 
-# 1. Fix facilityTypeId typo
-df['facilityTypeId'] = df['facilityTypeId'].replace('farmacy', 'pharmacy')
+# Fix typo
+df = df.withColumn("facilityTypeId",
+    F.when(F.col("facilityTypeId") == "farmacy", "pharmacy")
+     .otherwise(F.col("facilityTypeId")))
 
-# 2. Parse JSON array columns
-def parse_json_list(val):
-    """Parse a JSON-encoded string (e.g. '["item1", "item2"]') into a Python list.
-    Handles NaN values, single-quote JSON, and malformed strings gracefully.
-    Returns an empty list on failure so downstream code never gets None."""
-    if pd.isna(val):
-        return []
-    try:
-        parsed = json.loads(val.replace("'", '"'))
-        return [x for x in parsed if x]  # Remove empty strings
-    except:
-        return []
-
-for col in ['procedure', 'equipment', 'capability', 'specialties', 'affiliationTypeIds']:
-    df[f'{col}_parsed'] = df[col].apply(parse_json_list)
-
-# 3. Normalize region names (Ghana has 16 regions)
-REGION_MAP = {
-    'Greater Accra': 'Greater Accra', 'Greater Accra Region': 'Greater Accra',
-    'Accra': 'Greater Accra', 'Accra North': 'Greater Accra',
-    'Accra East': 'Greater Accra', 'East Legon': 'Greater Accra',
-    'Ga East Municipality': 'Greater Accra', 'Ledzokuku-Krowor': 'Greater Accra',
-    'Ga East Municipality, Greater Accra Region': 'Greater Accra',
-    'Tema West Municipal': 'Greater Accra',
-    'Shai Osudoku District, Greater Accra Region': 'Greater Accra',
-    'Ashanti': 'Ashanti', 'Ashanti Region': 'Ashanti', 'ASHANTI': 'Ashanti',
-    'ASHANTI REGION': 'Ashanti', 'Asokwa-Kumasi': 'Ashanti',
-    'Ejisu Municipal': 'Ashanti', 'Ahafo Ano South-East': 'Ashanti',
-    'Western': 'Western', 'Western Region': 'Western',
-    'Western North': 'Western North', 'Western North Region': 'Western North',
-    'Central': 'Central', 'Central Region': 'Central', 'Central Ghana': 'Central',
-    'KEEA': 'Central',
-    'Volta': 'Volta', 'Volta Region': 'Volta',
-    'Central Tongu District': 'Volta',
-    'Northern': 'Northern', 'Northern Region': 'Northern',
-    'Brong Ahafo': 'Bono', 'Brong Ahafo Region': 'Bono', 'Bono': 'Bono',
-    'Bono East Region': 'Bono East', 'Techiman Municipal': 'Bono East',
-    'Dormaa East': 'Bono East',
-    'Ahafo': 'Ahafo', 'Ahafo Region': 'Ahafo', 'Asutifi South': 'Ahafo',
-    'Eastern': 'Eastern', 'Eastern Region': 'Eastern',
-    'Upper East': 'Upper East', 'Upper East Region': 'Upper East',
-    'Upper West': 'Upper West', 'Upper West Region': 'Upper West',
-    'Sissala West District': 'Upper West',
-    'Oti': 'Oti', 'Oti Region': 'Oti',
-    'Savannah': 'Savannah',
-    'SH': None,  # Unknown
-    'Ghana': None,  # Too generic
+# Normalize region names
+region_map = {
+    "Greater Accra Region": "Greater Accra", "Accra": "Greater Accra",
+    "ASHANTI": "Ashanti", "Ashanti Region": "Ashanti",
+    "Western Region": "Western", "Central Region": "Central",
+    # ... (full map in AGENT.md data section)
 }
-df['region_normalized'] = df['address_stateOrRegion'].map(REGION_MAP)
+mapping_expr = F.create_map([F.lit(x) for kv in region_map.items() for x in kv])
+df = df.withColumn("region_normalized", mapping_expr[F.col("address_stateOrRegion")])
 
-# 4. Infer region from city when stateOrRegion is missing
-CITY_TO_REGION = {
-    'Accra': 'Greater Accra', 'Tema': 'Greater Accra', 'Ashaiman': 'Greater Accra',
-    'Kumasi': 'Ashanti', 'Obuasi': 'Ashanti',
-    'Takoradi': 'Western', 'Sekondi': 'Western', 'Tarkwa': 'Western',
-    'Cape Coast': 'Central', 'Mankessim': 'Central',
-    'Tamale': 'Northern', 'Yendi': 'Northern',
-    'Sunyani': 'Bono', 'Techiman': 'Bono East',
-    'Ho': 'Volta', 'Hohoe': 'Volta',
-    'Koforidua': 'Eastern',
-    'Bolgatanga': 'Upper East',
-    'Wa': 'Upper West', 'Tumu': 'Upper West',
-}
-mask = df['region_normalized'].isna()
-df.loc[mask, 'region_normalized'] = df.loc[mask, 'address_city'].map(CITY_TO_REGION)
-
-# 5. Computed fields for analysis
-df['procedure_count'] = df['procedure_parsed'].str.len()
-df['equipment_count'] = df['equipment_parsed'].str.len()
-df['capability_count'] = df['capability_parsed'].str.len()
-df['specialty_count'] = df['specialties_parsed'].str.len()
-
-# 6. Deduplicate facility names (71 names appear >1 time)
-# Strategy: group by name + city, merge parsed arrays, keep row with most data
-def merge_rows(group):
-    """Deduplicate facilities that share the same name + city.
-    Picks the row with the most non-null fields as the 'best' record,
-    then unions all parsed list columns (procedures, equipment, etc.)
-    from every duplicate row into that single record. Returns one row."""
-    if len(group) == 1:
-        return group.iloc[0]
-    best = group.loc[group.notna().sum(axis=1).idxmax()]  # row with most non-null
-    # Merge parsed arrays from all rows
-    for col in ['procedure_parsed', 'equipment_parsed', 'capability_parsed', 'specialties_parsed']:
-        merged = []
-        for _, r in group.iterrows():
-            merged.extend(r.get(col, []))
-        best[col] = list(set(merged))  # deduplicate items
-    return best
-
-df_deduped = df.groupby(['name', 'address_city'], dropna=False).apply(merge_rows).reset_index(drop=True)
-
-# 7. Concatenated text for vector search
-df['full_text'] = df.apply(lambda r: ' | '.join([
-    f"Procedures: {'; '.join(r['procedure_parsed'])}" if r['procedure_parsed'] else '',
-    f"Equipment: {'; '.join(r['equipment_parsed'])}" if r['equipment_parsed'] else '',
-    f"Capabilities: {'; '.join(r['capability_parsed'])}" if r['capability_parsed'] else '',
-    f"Description: {r['description']}" if pd.notna(r.get('description')) else '',
-]).strip(' | '), axis=1)
+# Save as managed Delta table
+df.write.format("delta").mode("overwrite").saveAsTable("your_catalog.your_schema.ghana_facilities")
 ```
 
-#### Task 1.2: Geocoding Strategy
+#### Step 2: Add Column Descriptions (Critical for Genie)
 
-```
-File: src/data/geocoder.py
-```
-
-**⚠️ NO LAT/LON IN DATASET — Must geocode.**
-
-**Approach: Ghana City Coordinate Lookup Table (fast, no API needed)**
-
-Create a static lookup of Ghana's major cities and towns with coordinates:
-
-```python
-GHANA_CITY_COORDS = {
-    # Major cities
-    'Accra': (5.6037, -0.1870),
-    'Kumasi': (6.6885, -1.6244),
-    'Tema': (5.6698, -0.0166),
-    'Takoradi': (4.8845, -1.7554),
-    'Tamale': (9.4008, -0.8393),
-    'Cape Coast': (5.1036, -1.2466),
-    'Sunyani': (7.3349, -2.3123),
-    'Koforidua': (6.0940, -0.2593),
-    'Ho': (6.6113, 0.4713),
-    'Bolgatanga': (10.7855, -0.8514),
-    'Wa': (10.0601, -2.5099),
-    'Tumu': (10.8833, -1.9667),
-    'Hohoe': (7.1519, 0.4735),
-    'Techiman': (7.5833, -1.9333),
-    'Tarkwa': (5.3015, -1.9945),
-    'Ashaiman': (5.6802, -0.0327),
-    'Obuasi': (6.2024, -1.6608),
-    'Sekondi': (4.9439, -1.7137),
-    'Winneba': (5.3500, -0.6167),
-    'Nkawkaw': (6.5500, -0.7667),
-    'Nsawam': (5.8000, -0.3500),
-    'Yendi': (9.4333, -0.0167),
-    'Mankessim': (5.2667, -1.0167),
-    'Dansoman': (5.5500, -0.2667),  # suburb of Accra
-    # Add more as needed from data...
-}
-
-def geocode_facility(row):
-    """Look up latitude/longitude for a facility using its address_city.
-    Matches against the static GHANA_CITY_COORDS dictionary.
-    Returns (lat, lon) tuple if found, or (None, None) if the city
-    is missing or not in the lookup table."""
-    city = row.get('address_city', '')
-    if pd.notna(city) and city in GHANA_CITY_COORDS:
-        return GHANA_CITY_COORDS[city]
-    return (None, None)
-
-df[['latitude', 'longitude']] = df.apply(geocode_facility, axis=1, result_type='expand')
-```
-
-**For demo: ~70-80% coverage from city lookup is sufficient.** The map will show most facilities.
-
-> **PRE-COMPUTATION**: Geocoding runs **once at startup** in `loader.py`. The result is cached in the DuckDB `facilities` table. Do NOT re-geocode on every query. After the initial load, extract all unique `address_city` values not in the lookup and add them manually — there are likely 50-80 unique cities beyond the 24 listed above.
-
-**Stretch**: Use Google Geocoding API for remaining un-geocoded facilities using `address_line1 + address_city + Ghana`.
-
-#### Task 1.3: Database Setup (Normalized Tables)
-
-```
-File: src/data/sql_setup.py
-```
-
-Create DuckDB/SQLite with normalized tables:
+Ref: [ALTER TABLE — Column Comments](https://docs.databricks.com/en/sql/language-manual/sql-ref-syntax-ddl-alter-table.html)
 
 ```sql
--- Main facilities table (one row per unique facility)
-CREATE TABLE facilities (
-    id INTEGER PRIMARY KEY,
-    name TEXT,
-    unique_id TEXT,
-    organization_type TEXT,          -- 'facility' or 'ngo'
-    facilityTypeId TEXT,             -- hospital, clinic, dentist, pharmacy, doctor
-    operatorTypeId TEXT,             -- public, private
-    address_city TEXT,
-    region_normalized TEXT,          -- cleaned Ghana region
-    address_country TEXT,
-    latitude REAL,
-    longitude REAL,
-    capacity INTEGER,
-    numberDoctors INTEGER,
-    description TEXT,
-    source_url TEXT,
-    procedure_count INTEGER,
-    equipment_count INTEGER,
-    capability_count INTEGER,
-    specialty_count INTEGER,
-    full_text TEXT                   -- concatenated for search
-);
-
--- One row per specialty per facility
-CREATE TABLE facility_specialties (
-    facility_id INTEGER,
-    specialty TEXT,
-    FOREIGN KEY (facility_id) REFERENCES facilities(id)
-);
-
--- One row per procedure per facility
-CREATE TABLE facility_procedures (
-    facility_id INTEGER,
-    procedure_text TEXT,
-    FOREIGN KEY (facility_id) REFERENCES facilities(id)
-);
-
--- One row per equipment per facility
-CREATE TABLE facility_equipment (
-    facility_id INTEGER,
-    equipment_text TEXT,
-    FOREIGN KEY (facility_id) REFERENCES facilities(id)
-);
-
--- One row per capability per facility
-CREATE TABLE facility_capabilities (
-    facility_id INTEGER,
-    capability_text TEXT,
-    FOREIGN KEY (facility_id) REFERENCES facilities(id)
-);
+ALTER TABLE your_catalog.your_schema.ghana_facilities
+  ALTER COLUMN name COMMENT 'Official name of healthcare facility or NGO';
+ALTER TABLE your_catalog.your_schema.ghana_facilities
+  ALTER COLUMN procedure COMMENT 'JSON array of clinical procedures — surgeries, diagnostics, screenings';
+ALTER TABLE your_catalog.your_schema.ghana_facilities
+  ALTER COLUMN equipment COMMENT 'JSON array of medical devices — MRI, CT, X-ray, surgical tools';
+ALTER TABLE your_catalog.your_schema.ghana_facilities
+  ALTER COLUMN capability COMMENT 'JSON array of care levels — trauma levels, ICU, accreditations, staffing';
+ALTER TABLE your_catalog.your_schema.ghana_facilities
+  ALTER COLUMN specialties COMMENT 'JSON array of camelCase medical specialties e.g. cardiology, ophthalmology';
+ALTER TABLE your_catalog.your_schema.ghana_facilities
+  ALTER COLUMN facilityTypeId COMMENT 'Facility type: hospital, clinic, dentist, pharmacy, or doctor';
+ALTER TABLE your_catalog.your_schema.ghana_facilities
+  ALTER COLUMN address_stateOrRegion COMMENT 'Ghana region (raw, may need normalization)';
+ALTER TABLE your_catalog.your_schema.ghana_facilities
+  ALTER COLUMN region_normalized COMMENT 'Cleaned Ghana region name (one of 16 official regions)';
+ALTER TABLE your_catalog.your_schema.ghana_facilities
+  ALTER COLUMN address_city COMMENT 'City or town where the facility is located';
 ```
 
-#### Task 1.4: Vector Store Setup
+#### Step 3: Create Vector Search Index
 
-```
-File: src/data/vector_store.py
-```
-
-- Embed `full_text` for each facility using `text-embedding-3-small`
-- Store in ChromaDB with metadata: `{name, facility_id, facilityTypeId, region_normalized, address_city}`
-- Also create separate collections or tags for procedure-only, equipment-only, capability-only search
-
-### Phase 2: Core — Agent Engine
-
-#### Task 2.1: Supervisor Agent (Router)
-
-```
-File: src/agents/supervisor.py
-```
-
-LangGraph-based router with intent classification:
+Ref: [Mosaic AI Vector Search](https://docs.databricks.com/en/generative-ai/vector-search.html)
 
 ```python
-SUPERVISOR_PROMPT = """You are a query router for a healthcare facility intelligence system for Ghana.
-Classify the user's question into ONE of these categories:
+from databricks.vector_search.client import VectorSearchClient
 
-- STRUCTURED_QUERY: Questions about counts, aggregations, rankings, comparisons
-  Examples: "How many hospitals have cardiology?", "Which region has the most clinics?"
+vsc = VectorSearchClient()
 
-- SEMANTIC_SEARCH: Questions about specific facility services, capabilities, or equipment
-  Examples: "What services does Korle Bu offer?", "Are there clinics in Accra that do dialysis?"
+# Create endpoint (one-time)
+vsc.create_endpoint(name="ghana-medical-vs", endpoint_type="STANDARD")
 
-- ANOMALY_DETECTION: Questions about data inconsistencies, misrepresentation, or suspicious claims
-  Examples: "Which facilities claim surgery but lack equipment?", "Things that shouldn't move together?"
-
-- GEOSPATIAL: Questions about distances, locations, coverage areas, medical deserts
-  Examples: "Hospitals within 50km of Tamale?", "Show medical deserts for ophthalmology"
-
-- PLANNING: Questions about recommendations, priorities, resource allocation
-  Examples: "Where should the next mission go?", "Top regions needing investment?"
-
-Respond with ONLY the category name.
-"""
+# Create auto-embedding index over free-form text columns
+vsc.create_delta_sync_index(
+    endpoint_name="ghana-medical-vs",
+    index_name="your_catalog.your_schema.ghana_facilities_index",
+    source_table_name="your_catalog.your_schema.ghana_facilities",
+    pipeline_type="TRIGGERED",
+    primary_key="unique_id",
+    embedding_source_columns=[
+        {"name": "procedure", "model_endpoint_name": "databricks-gte-large-en"},
+        {"name": "equipment", "model_endpoint_name": "databricks-gte-large-en"},
+        {"name": "capability", "model_endpoint_name": "databricks-gte-large-en"},
+    ],
+    columns_to_sync=["name", "facilityTypeId", "address_city",
+                     "region_normalized", "specialties", "description"]
+)
 ```
 
-#### Task 2.2: SQL/Data Query Agent
+#### Step 4: Configure Genie Space
 
+Ref: [Databricks Genie](https://docs.databricks.com/en/genie/)
+
+1. Databricks UI → **Genie** → **Create Genie Space**
+2. Add table: `your_catalog.your_schema.ghana_facilities`
+3. Add **custom instructions**:
+   ```
+   This dataset contains 987 healthcare facilities and NGOs in Ghana.
+   The procedure/equipment/capability columns are JSON arrays of English strings.
+   The specialties column contains JSON arrays of camelCase strings like "cardiology".
+   Use LIKE '%keyword%' to search within JSON array columns.
+   The region_normalized column has clean Ghana region names.
+   ```
+4. Add **example SQL queries**:
+   ```sql
+   -- How many hospitals have cardiology?
+   SELECT COUNT(*) FROM ghana_facilities
+   WHERE facilityTypeId = 'hospital' AND specialties LIKE '%cardiology%';
+
+   -- Which region has the most hospitals?
+   SELECT region_normalized, COUNT(*) as cnt FROM ghana_facilities
+   WHERE facilityTypeId = 'hospital'
+   GROUP BY region_normalized ORDER BY cnt DESC;
+
+   -- Facilities with procedures but no equipment
+   SELECT name, procedure, equipment FROM ghana_facilities
+   WHERE procedure != '[]' AND (equipment = '[]' OR equipment IS NULL);
+   ```
+5. Note the **Genie Space ID** — needed in `.env`
+
+---
+
+### Core — LangGraph Agent Graph + Databricks Wiring
+
+The local LangGraph graph orchestrates agent nodes. Each node calls a Databricks service via the SDK. MLflow traces every step. Ref: [LangGraph Docs](https://langchain-ai.github.io/langgraph/)
+
+#### `src/config.py` — Databricks Client Setup
+
+Ref: [Databricks SDK for Python](https://docs.databricks.com/en/dev-tools/sdk-python.html)
+
+```python
+from databricks.sdk import WorkspaceClient
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+db_client = WorkspaceClient(
+    host=os.getenv("DATABRICKS_HOST"),
+    token=os.getenv("DATABRICKS_TOKEN")
+)
+
+GENIE_SPACE_ID = os.getenv("GENIE_SPACE_ID")
+VS_INDEX = os.getenv("VECTOR_SEARCH_INDEX")
+VS_ENDPOINT = os.getenv("VECTOR_SEARCH_ENDPOINT")
+CATALOG = os.getenv("DATABRICKS_CATALOG")
+SCHEMA = os.getenv("DATABRICKS_SCHEMA")
 ```
-File: src/agents/sql_agent.py
+
+#### `src/tools/` — Databricks SDK Wrappers (LangGraph Tools)
+
+Each tool wraps a Databricks service. Agents call these tools within LangGraph nodes.
+
+**`src/tools/genie_tool.py`** — Text-to-SQL via Genie
+```python
+from src.config import db_client, GENIE_SPACE_ID
+
+def query_genie(question: str) -> dict:
+    """Send natural language to Genie, get SQL + results back.
+    Ref: https://docs.databricks.com/en/genie/"""
+    response = db_client.genie.start_conversation(
+        space_id=GENIE_SPACE_ID,
+        content=question
+    )
+    return {"sql": response.sql, "results": response.attachments}
 ```
 
-System prompt must include the **exact table schemas** from Task 1.3.
+**`src/tools/vector_search_tool.py`** — Semantic Search (RAG)
+```python
+from src.config import db_client, VS_INDEX
 
-Key queries to handle:
-
-```sql
--- Q1.1: How many hospitals have cardiology?
-SELECT COUNT(DISTINCT f.id) FROM facilities f
-JOIN facility_specialties fs ON f.id = fs.facility_id
-WHERE fs.specialty = 'cardiology' AND f.facilityTypeId = 'hospital';
-
--- Q1.2: How many hospitals in [region] can perform [procedure]?
-SELECT COUNT(DISTINCT f.id) FROM facilities f
-JOIN facility_procedures fp ON f.id = fp.facility_id
-WHERE f.region_normalized = ? AND fp.procedure_text ILIKE ?;
-
--- Q1.5: Which region has the most [Type] hospitals?
-SELECT region_normalized, COUNT(*) as cnt FROM facilities
-WHERE facilityTypeId = ? GROUP BY region_normalized ORDER BY cnt DESC LIMIT 5;
-
--- Q4.7: Correlations between facility characteristics
-SELECT facilityTypeId, AVG(procedure_count) as avg_procs,
-  AVG(equipment_count) as avg_equip, AVG(specialty_count) as avg_specs
-FROM facilities GROUP BY facilityTypeId;
-
--- Q7.5: Procedures that depend on very few facilities
-SELECT procedure_text, COUNT(DISTINCT facility_id) as facility_count
-FROM facility_procedures GROUP BY procedure_text
-HAVING facility_count <= 2 ORDER BY facility_count;
-
--- Q7.6: Oversupply vs scarcity
-SELECT procedure_text, COUNT(DISTINCT facility_id) as facility_count
-FROM facility_procedures GROUP BY procedure_text ORDER BY facility_count DESC;
+def query_vector_search(query_text: str, num_results: int = 10, filters: dict = None) -> list:
+    """Semantic search over procedure/equipment/capability columns.
+    Ref: https://docs.databricks.com/en/generative-ai/vector-search"""
+    results = db_client.vector_search_indexes.query_index(
+        index_name=VS_INDEX,
+        columns=["name", "procedure", "equipment", "capability",
+                 "address_city", "facilityTypeId", "specialties"],
+        query_text=query_text,
+        num_results=num_results,
+        filters=filters
+    )
+    return results.data_array
 ```
 
-#### Task 2.3: Vector Search Agent
+**`src/tools/model_serving_tool.py`** — LLM Inference
+```python
+from src.config import db_client
 
+def query_llm(system_prompt: str, user_message: str) -> str:
+    """Call foundation model via Databricks Model Serving.
+    Ref: https://docs.databricks.com/en/machine-learning/model-serving"""
+    response = db_client.serving_endpoints.query(
+        name="databricks-meta-llama-3-3-70b-instruct",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+    )
+    return response.choices[0].message.content
 ```
-File: src/agents/vector_agent.py
+
+#### `src/state.py` — LangGraph State Schema
+
+```python
+from typing import TypedDict, Literal, Optional
+from langgraph.graph import MessagesState
+
+class AgentState(TypedDict):
+    """Shared state passed between all LangGraph nodes.
+    Ref: https://langchain-ai.github.io/langgraph/concepts/low_level/#state"""
+    query: str                                          # Original user question
+    intent: Literal["SQL", "SEARCH", "ANOMALY", "GEO"] # Classified by supervisor
+    sql_result: Optional[dict]                          # From Genie
+    search_result: Optional[list]                       # From Vector Search
+    anomaly_result: Optional[str]                       # From Model Serving
+    geo_result: Optional[dict]                          # From local geospatial
+    final_answer: Optional[str]                         # Merged by synthesis node
+    citations: list                                     # Audit trail for MLflow
 ```
 
-- Handles Q1.3, Q1.4 and any free-text service lookups
-- Query ChromaDB with semantic similarity
-- Return top-k results with original text as citations
-- Filter by metadata (facilityTypeId, region, city) when specified
+#### `src/graph.py` — LangGraph State Graph Definition
 
-#### Task 2.4: Medical Reasoning Agent
+```python
+from langgraph.graph import StateGraph, END
+from src.state import AgentState
+from src.nodes.supervisor import supervisor_node
+from src.nodes.sql_agent import sql_agent_node
+from src.nodes.rag_agent import rag_agent_node
+from src.nodes.medical_reasoning import medical_reasoning_node
+from src.nodes.geospatial import geospatial_node
+from src.nodes.synthesis import synthesis_node
+import mlflow
 
+def route_by_intent(state: AgentState) -> str:
+    """Conditional edge — routes to the right agent based on supervisor classification.
+    Ref: https://langchain-ai.github.io/langgraph/concepts/low_level/#conditional-edges"""
+    return state["intent"]
+
+# Build the graph
+workflow = StateGraph(AgentState)
+
+# Add nodes
+workflow.add_node("supervisor", supervisor_node)
+workflow.add_node("SQL", sql_agent_node)
+workflow.add_node("SEARCH", rag_agent_node)
+workflow.add_node("ANOMALY", medical_reasoning_node)
+workflow.add_node("GEO", geospatial_node)
+workflow.add_node("synthesis", synthesis_node)
+
+# Edges: supervisor classifies intent → route to correct agent → merge in synthesis
+workflow.set_entry_point("supervisor")
+workflow.add_conditional_edges("supervisor", route_by_intent,
+    {"SQL": "SQL", "SEARCH": "SEARCH", "ANOMALY": "ANOMALY", "GEO": "GEO"})
+workflow.add_edge("SQL", "synthesis")
+workflow.add_edge("SEARCH", "synthesis")
+workflow.add_edge("ANOMALY", "synthesis")
+workflow.add_edge("GEO", "synthesis")
+workflow.add_edge("synthesis", END)
+
+# Compile
+graph = workflow.compile()
+
+@mlflow.trace
+def run_agent(query: str) -> str:
+    """Run the full agent graph. MLflow traces every step.
+    Ref: https://docs.databricks.com/en/mlflow/llm-tracing"""
+    result = graph.invoke({"query": query, "citations": []})
+    return result["final_answer"]
 ```
-File: src/agents/medical_reasoning.py
+
+#### `src/nodes/supervisor.py` — Intent Classification Node
+
+```python
+from src.tools.model_serving_tool import query_llm
+from src.state import AgentState
+
+ROUTER_PROMPT = """Classify this healthcare data question into ONE category:
+- SQL: counts, aggregations, rankings, comparisons (e.g. "How many hospitals have cardiology?")
+- SEARCH: specific facility services, capabilities, equipment (e.g. "What does Korle Bu offer?")
+- ANOMALY: data inconsistencies, mismatches (e.g. "Facilities claiming surgery but lacking equipment?")
+- GEO: distances, locations, medical deserts (e.g. "Hospitals within 50km of Tamale?")
+Respond with ONLY the category name."""
+
+def supervisor_node(state: AgentState) -> dict:
+    """Supervisor node — classifies user intent using Databricks Model Serving LLM.
+    Returns the intent label which drives conditional routing in the graph."""
+    intent = query_llm(ROUTER_PROMPT, state["query"]).strip().upper()
+    if intent not in ("SQL", "SEARCH", "ANOMALY", "GEO"):
+        intent = "SQL"  # Default to Genie for unrecognized intents
+    return {"intent": intent}
 ```
 
-**Critical: Since capacity/numberDoctors are mostly NULL, anomaly detection must use PROCEDURE-EQUIPMENT cross-referencing, not size-based heuristics.**
+#### `src/nodes/sql_agent.py` — Genie Text-to-SQL Node
+
+```python
+from src.tools.genie_tool import query_genie
+from src.state import AgentState
+
+def sql_agent_node(state: AgentState) -> dict:
+    """SQL Agent — sends the user question to Databricks Genie for Text-to-SQL.
+    Genie generates SQL, executes it, and returns structured results."""
+    result = query_genie(state["query"])
+    return {"sql_result": result, "citations": state["citations"] + [{"source": "genie", "sql": result.get("sql")}]}
+```
+
+#### `src/nodes/rag_agent.py` — Vector Search RAG Node
+
+```python
+from src.tools.vector_search_tool import query_vector_search
+from src.state import AgentState
+
+def rag_agent_node(state: AgentState) -> dict:
+    """RAG Agent — performs semantic search over facility free-form text using
+    Databricks Mosaic AI Vector Search. Returns top-k matching facilities."""
+    results = query_vector_search(state["query"])
+    return {"search_result": results, "citations": state["citations"] + [{"source": "vector_search", "hits": len(results)}]}
+```
+
+#### `src/nodes/synthesis.py` — Result Merger + Citation Builder
+
+```python
+from src.tools.model_serving_tool import query_llm
+from src.state import AgentState
+
+SYNTHESIS_PROMPT = """Summarize this data into a clear, citation-backed answer.
+Include facility names, regions, and specific data points. Format as markdown."""
+
+def synthesis_node(state: AgentState) -> dict:
+    """Synthesis node — merges results from whichever agent ran, formats a user-facing
+    answer with citations, and logs the full trace via MLflow."""
+    raw = state.get("sql_result") or state.get("search_result") or state.get("anomaly_result") or state.get("geo_result")
+    answer = query_llm(SYNTHESIS_PROMPT, str(raw))
+    return {"final_answer": answer}
+```
+
+#### `src/medical_reasoning.py` — Anomaly Detection Prompt
 
 ```python
 MEDICAL_REASONING_PROMPT = """You are a medical facility verification expert for Ghana.
@@ -630,716 +623,162 @@ PROCEDURE-EQUIPMENT DEPENDENCIES (flag if procedure claimed without required equ
 - Hemodialysis → requires: dialysis machines
 - Cesarean section → requires: operating theater, anesthesia equipment
 - Laparoscopic surgery → requires: laparoscope, insufflator
-- Endoscopy → requires: endoscope
 - X-ray → requires: X-ray machine
 - Ultrasound → requires: ultrasound machine
 - ICU care → requires: ventilators, cardiac monitors
 
-ANOMALY PATTERNS TO DETECT:
-1. PROCEDURE-EQUIPMENT GAP: Facility claims surgical procedures but lists zero surgical equipment
-2. SPECIALTY-PROCEDURE MISMATCH: Facility lists specialty (e.g., ophthalmology) but no related procedures
-3. BREADTH WITHOUT DEPTH: Many specialties listed (>5) but zero procedures and zero equipment
-4. CAPABILITY INFLATION: Capability text makes broad claims ("world-class", "comprehensive") but no supporting procedure/equipment data
-5. MISSING BASICS: Hospital type but no emergency or inpatient capability mentioned
+ANOMALY PATTERNS:
+1. PROCEDURE-EQUIPMENT GAP: Claims surgical procedures but lists zero surgical equipment
+2. SPECIALTY-PROCEDURE MISMATCH: Lists specialty but no related procedures
+3. BREADTH WITHOUT DEPTH: Many specialties (>5) but zero procedures and zero equipment
+4. CAPABILITY INFLATION: Broad claims ("world-class") with no supporting data
+5. MISSING BASICS: Hospital type but no emergency or inpatient capability
 
-For each facility analyzed, provide:
+For each facility, return:
 - VERDICT: CLEAN, WARNING, or FLAG
 - REASON: Specific explanation
 - EVIDENCE: Which data fields support your conclusion
-- CITATION: Row ID and facility name
-"""
+- FACILITY: Name and city"""
 ```
 
-#### Task 2.5: Geospatial Calculator
-
-```
-File: src/agents/geospatial.py
-```
-
-```python
-from math import radians, sin, cos, sqrt, atan2
-
-def haversine_km(lat1, lon1, lat2, lon2):
-    """Calculate the great-circle distance in kilometers between two
-    geographic points using the Haversine formula. Used by radius search
-    and cold-spot detection to measure facility-to-facility or
-    grid-point-to-facility distances."""
-    R = 6371  # Earth radius in km
-    dlat = radians(lat2 - lat1)
-    dlon = radians(lon2 - lon1)
-    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
-    return R * 2 * atan2(sqrt(a), sqrt(1-a))
-
-def find_facilities_within_radius(df, center_lat, center_lon, radius_km, specialty=None):
-    """Find all facilities within radius_km of a given center point.
-    Optionally filters by medical specialty (e.g. 'cardiology').
-    Returns a list of facility dicts sorted by distance (nearest first),
-    each including a 'distance_km' field. Used by the Geospatial Agent
-    to answer queries like 'Hospitals within 50km of Tamale with cardiology'."""
-    results = []
-    for _, row in df.iterrows():
-        if pd.notna(row['latitude']) and pd.notna(row['longitude']):
-            dist = haversine_km(center_lat, center_lon, row['latitude'], row['longitude'])
-            if dist <= radius_km:
-                if specialty is None or specialty in row.get('specialties_parsed', []):
-                    results.append({**row.to_dict(), 'distance_km': dist})
-    return sorted(results, key=lambda x: x['distance_km'])
-
-def detect_cold_spots(df, specialty, grid_spacing=0.5, threshold_km=100):
-    """Grid Ghana and find areas where no facility with given specialty exists within threshold.
-
-    ⚠️ PRE-COMPUTE THIS AT STARTUP for common specialties (cardiology, ophthalmology,
-    generalSurgery, emergencyMedicine, pediatrics) and cache results.
-    Do NOT run on every query — it's O(grid_points × facilities).
-    Store in: cold_spots_cache[specialty] = [{'lat': ..., 'lon': ..., 'nearest_km': ...}]
-    """
-    # Ghana bounding box: lat 4.5-11.2, lon -3.3 to 1.2
-    # Use numpy vectorization for speed
-    spec_facilities = df[df['specialties_parsed'].apply(lambda x: specialty in x)]
-    spec_facilities = spec_facilities.dropna(subset=['latitude', 'longitude'])
-
-    if spec_facilities.empty:
-        return []  # No facilities with this specialty at all
-
-    fac_coords = spec_facilities[['latitude', 'longitude']].values  # numpy array
-
-    cold_spots = []
-    for lat in np.arange(4.5, 11.2, grid_spacing):
-        for lon in np.arange(-3.3, 1.2, grid_spacing):
-            # Vectorized distance calc
-            dists = np.array([haversine_km(lat, lon, fc[0], fc[1]) for fc in fac_coords])
-            min_dist = dists.min()
-            if min_dist > threshold_km:
-                cold_spots.append({'lat': lat, 'lon': lon, 'nearest_km': float(min_dist)})
-    return cold_spots
-
-# Pre-compute at startup:
-COMMON_SPECIALTIES = ['cardiology', 'ophthalmology', 'generalSurgery',
-                      'emergencyMedicine', 'pediatrics', 'gynecologyAndObstetrics']
-cold_spots_cache = {s: detect_cold_spots(df, s) for s in COMMON_SPECIALTIES}
-```
-
-### Phase 3: Surface — Frontend & Map
-
-#### Task 3.1: Streamlit Chat Interface
-
-```
-File: src/frontend/app.py
-```
+#### `src/app.py` — Streamlit Frontend (calls LangGraph agent)
 
 ```python
 import streamlit as st
+from src.graph import run_agent
+from src.map_component import create_ghana_map
 
 st.set_page_config(page_title="Ghana Medical Intelligence Agent", layout="wide")
-st.title("🏥 Ghana Medical Intelligence Agent")
-st.caption("Bridging Medical Deserts — Powered by the Virtue Foundation Dataset")
+st.title("Ghana Medical Intelligence Agent")
+st.caption("Bridging Medical Deserts — Powered by LangGraph + Databricks + MLflow")
 
-# Sidebar with example queries
 with st.sidebar:
-    st.header("📋 Example Queries")
-    examples = [
+    st.header("Example Queries")
+    for ex in [
         "How many hospitals have cardiology?",
         "What services does Korle Bu Teaching Hospital offer?",
-        "Which facilities claim advanced surgery but lack equipment?",
+        "Which facilities claim surgery but lack equipment?",
         "Show medical deserts for ophthalmology",
-        "Where should the Virtue Foundation prioritize its next mission?",
-    ]
-    for ex in examples:
+        "Where should the next mission go?",
+    ]:
         if st.button(ex, key=ex):
             st.session_state.query = ex
 
-# Two-column layout: chat + map
 col_chat, col_map = st.columns([1, 1])
 
 with col_chat:
     query = st.text_input("Ask about healthcare facilities in Ghana:",
-                          value=st.session_state.get('query', ''))
+                          value=st.session_state.get("query", ""))
     if query:
-        # Route through supervisor agent
-        with st.spinner("Agent reasoning..."):
-            response = run_agent(query)
-
-        st.markdown(response['answer'])
-
-        # Citations
-        with st.expander("📎 Citations & Evidence"):
-            for citation in response['citations']:
-                st.markdown(f"- **Row {citation['id']}**: {citation['name']} — {citation['evidence']}")
-
-        # Agent trace
-        with st.expander("🔍 Agent Reasoning Trace"):
-            for step in response['trace']:
-                st.markdown(f"**{step['agent']}**: {step['action']}")
+        with st.spinner("Running agent graph..."):
+            try:
+                answer = run_agent(query)
+                st.markdown(answer)
+            except Exception as e:
+                st.error(f"Something went wrong: {e}")
 
 with col_map:
-    st.subheader("🗺 Facility Map")
-    # Folium map rendered here (see Task 3.2)
+    st.subheader("Facility Map")
+    # Render Folium map (see map_component.py)
 ```
-
-#### Task 3.2: Interactive Map
-
-```
-File: src/frontend/map_component.py
-```
-
-```python
-import folium
-from streamlit_folium import st_folium
-
-def create_ghana_map(facilities_df, highlights=None, cold_spots=None):
-    """Build an interactive Folium map of Ghana with color-coded facility markers.
-    Each marker shows a popup with name, type, city, specialties, and counts.
-    If cold_spots are provided, overlays red circles to visualize medical deserts
-    (areas where the nearest facility for a specialty is far away).
-    Returns a folium.Map object ready to render in Streamlit via st_folium."""
-    # Center on Ghana
-    m = folium.Map(location=[7.9465, -1.0232], zoom_start=7, tiles='CartoDB positron')
-
-    # Color map for facility types
-    colors = {
-        'hospital': 'blue', 'clinic': 'green', 'dentist': 'purple',
-        'pharmacy': 'orange', 'doctor': 'red', None: 'gray'
-    }
-
-    # Add facility markers
-    for _, row in facilities_df.iterrows():
-        if pd.notna(row.get('latitude')) and pd.notna(row.get('longitude')):
-            color = colors.get(row.get('facilityTypeId'), 'gray')
-            popup_html = f"""
-                <b>{row['name']}</b><br>
-                Type: {row.get('facilityTypeId', 'N/A')}<br>
-                City: {row.get('address_city', 'N/A')}<br>
-                Specialties: {', '.join(row.get('specialties_parsed', [])[:3])}<br>
-                Procedures: {row.get('procedure_count', 0)}<br>
-                Equipment: {row.get('equipment_count', 0)}
-            """
-            folium.CircleMarker(
-                location=[row['latitude'], row['longitude']],
-                radius=5, color=color, fill=True, popup=popup_html
-            ).add_to(m)
-
-    # Add cold spots as red circles
-    if cold_spots:
-        for spot in cold_spots:
-            folium.Circle(
-                location=[spot['lat'], spot['lon']],
-                radius=spot['nearest_km'] * 500,  # visual scale
-                color='red', fill=True, opacity=0.3,
-                popup=f"Medical desert: nearest facility {spot['nearest_km']:.0f}km away"
-            ).add_to(m)
-
-    return m
-```
-
-#### Task 3.3: Planning Dashboard (STRETCH — only if ahead of schedule)
-
-```
-File: src/frontend/planning.py
-```
-
-- Summary cards: flagged facilities count, medical desert regions, underserved specialties
-- Skip if behind — the chat + map IS the demo
-
-### Phase 4: Launch — Demo Ready
-
-#### Task 4.1: Citation System
-
-Every response includes:
-
-```
-Answer: "3 hospitals in Upper West Region offer ophthalmology services"
-Citations:
-  [Row 42] Wa Regional Hospital — capability: "Offers ophthalmology outpatient services"
-  [Row 67] Tumu Municipal Hospital — specialty: ophthalmology
-  [Row 89] Nandom Hospital — procedure: "Performs basic eye examinations"
-```
-
-#### Task 4.2: Basic Error Handling (MVP only)
-
-- Wrap every agent call in `try/except` → show "Sorry, I couldn't process that" on failure
-- Loading spinner on query submission (`st.spinner`)
-- No formal test suite — validate by running the 5 demo queries manually once before presenting
 
 ---
 
-## 🛠 Tech Stack
+### MVD Checkpoint (Minimum Viable Demo)
 
-| Layer             | Technology                                                                       | Why                                                  |
-| ----------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| **Language**      | Python 3.11+                                                                     | Fastest for data + AI prototyping                    |
-| **Orchestration** | LangGraph                                                                        | Multi-agent routing with state management            |
-| **LLM**           | Databricks Model Serving (Llama 3.3 70B) or OpenAI GPT-4o                        | Databricks-native = bonus points; OpenAI as fallback |
-| **Embeddings**    | Databricks `gte-large-en` (via Vector Search) or OpenAI `text-embedding-3-small` | Auto-embedding in Databricks Vector Search           |
-| **Vector Store**  | Databricks Vector Search (primary) / ChromaDB (local fallback)                   | Production-grade semantic search, judge-friendly     |
-| **Text-to-SQL**   | Databricks Genie (primary) / DuckDB + LLM (local fallback)                       | Genie is THE recommended approach in challenge brief |
-| **SQL Database**  | Unity Catalog Delta table (primary) / DuckDB (local fallback)                    | Data governance + Genie integration                  |
-| **Agent Tracing** | MLflow Tracing on Databricks                                                     | Agentic-step citations stretch goal — almost free    |
-| **Frontend**      | Streamlit                                                                        | Ship UI in minutes                                   |
-| **Map**           | Folium + streamlit-folium                                                        | Interactive maps with zero config                    |
-| **Geospatial**    | Local Python (Haversine, numpy)                                                  | Not a Databricks strength — keep local               |
+**Before moving to Surface, this must work:**
 
-### requirements.txt
+1. Databricks workspace has Delta table + Vector Search index + Genie Space
+2. LangGraph graph compiles and runs end-to-end: supervisor → agent node → synthesis
+3. Streamlit app calls `run_agent()` and returns answers for at least 3 of the 5 demo queries
+4. Basic map renders with facility markers
 
-```
-# Core agent framework
-langchain>=0.3.0
-langgraph>=0.2.0
-openai>=1.0.0
-
-# Databricks integration
-databricks-sdk>=0.30.0
-databricks-vectorsearch>=0.40
-mlflow>=2.16.0
-
-# Local fallbacks
-chromadb>=0.5.0
-duckdb>=1.0.0
-
-# Frontend
-streamlit>=1.38.0
-streamlit-folium>=0.22.0
-folium>=0.17.0
-
-# Data
-pandas>=2.0.0
-numpy>=1.24.0
-
-# Config
-python-dotenv>=1.0.0
-```
-
-### .env.example
-
-```bash
-# === LLM Providers (at least one required) ===
-OPENAI_API_KEY=sk-...                          # GPT-4o for agents + embeddings
-# ANTHROPIC_API_KEY=sk-ant-...                 # Optional fallback
-
-# === Databricks (for sponsor-track features) ===
-DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
-DATABRICKS_TOKEN=dapi...                       # Personal Access Token
-DATABRICKS_CATALOG=your_catalog                # Unity Catalog name
-DATABRICKS_SCHEMA=your_schema                  # Schema within catalog
-
-# === Feature Flags ===
-USE_DATABRICKS_GENIE=false                     # true = Genie for Text-to-SQL, false = local DuckDB
-USE_DATABRICKS_VECTOR_SEARCH=false             # true = Databricks VS, false = local ChromaDB
-USE_DATABRICKS_MODEL_SERVING=false             # true = Llama 3.3 via Databricks, false = OpenAI
-ENABLE_MLFLOW_TRACING=false                    # true = log agent traces to MLflow
-```
-
-> **Feature flags let you develop locally first (all `false`) and flip to Databricks incrementally.** This is the safest path for a 6-hour sprint.
-
-### Makefile
-
-```makefile
-.PHONY: setup run clean
-
-setup:
-	python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
-	cp .env.example .env  # edit with your keys
-
-run:
-	streamlit run src/frontend/app.py
-
-clean:
-	rm -f data/ghana_facilities.duckdb data/*.chroma
-```
-
-> **No test suite.** This is a hackathon MVP. Validate by running the 5 demo queries in the Streamlit UI before presenting. Fix what breaks, skip what doesn't.
+**If this doesn't work, stop and debug the LangGraph graph + Databricks connection. Everything else is polish.**
 
 ---
 
-## 🧱 Databricks Free Edition Strategy
+### Surface — Map + MLflow + Polish
 
-This is a **Databricks-sponsored track**. Using Databricks features will impress judges and align with what the VF team is actually building toward (their production agent ships on Databricks by June 7th). The challenge brief explicitly says the dataset is "scoped for compatibility with Databricks Free Edition."
+- Folium map with color-coded markers (hospital=blue, clinic=green, etc.)
+- MLflow `@mlflow.trace` decorators on each agent node for step-level citation trail
+- Basic `try/except` error handling on all Databricks SDK calls
 
-### Sign Up (Do This Before the Hackathon)
+### Stretch Goals — Clear Path Forward
 
-1. Go to https://signup.databricks.com → select **Free Edition**
-2. No credit card required, no expiration
-3. You get: serverless compute, notebooks (Python + SQL), Unity Catalog, and all features below
-
-### What's Available in Free Edition
-
-| Feature                       | Available? | Use For                                                                                                            |
-| ----------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Notebooks** (Python + SQL)  | ✅ Yes     | Data exploration, agent prototyping, pipeline development                                                          |
-| **Unity Catalog**             | ✅ Yes     | Store Ghana dataset as managed Delta table with column descriptions                                                |
-| **Genie (Text-to-SQL)**       | ✅ Yes     | Natural language → SQL over your facility data. This IS the recommended Text2SQL approach from the challenge brief |
-| **Mosaic AI Vector Search**   | ✅ Yes     | Semantic search over free-form text (procedure/equipment/capability). Replaces local FAISS/ChromaDB                |
-| **Model Serving**             | ✅ Yes     | Serve foundation models (Meta Llama, Mistral) + external models (GPT-4o, Claude) via REST API                      |
-| **MLflow Tracking + Tracing** | ✅ Yes     | Log agent traces for the **citation stretch goal** — shows inputs/outputs of each agent step                       |
-| **Mosaic AI Agent Framework** | ✅ Yes     | Build agents with MLflow ResponsesAgent, deploy with serving endpoints                                             |
-| **Dashboards**                | ✅ Yes     | Alternative to Streamlit for demo dashboard                                                                        |
-| **Jobs / Pipelines**          | ✅ Yes     | Orchestrate data ingestion (not needed for hackathon)                                                              |
-| **Scala / GPUs**              | ❌ No      | Not needed for this challenge                                                                                      |
-
-### ⚡ Recommended Databricks Integration Strategy
-
-**Hybrid approach: Develop locally in Cursor, integrate Databricks for key differentiating features.**
-
-```
-LOCAL (Cursor + Python)           DATABRICKS FREE EDITION
-─────────────────────────         ──────────────────────────
-✦ LangGraph orchestration         ✦ Unity Catalog (data storage)
-✦ Supervisor agent routing        ✦ Genie (Text-to-SQL agent)
-✦ Medical Reasoning Agent         ✦ Vector Search (semantic search)
-✦ Geospatial calculations         ✦ MLflow Tracing (citations!)
-✦ Streamlit frontend              ✦ Model Serving (LLM endpoint)
-✦ Folium map visualization
-```
-
-### Phase-by-Phase Databricks Usage
-
-#### Phase 1 (Data Layer): Upload Dataset to Unity Catalog
-
-```python
-# In a Databricks notebook:
-import pandas as pd
-
-# Upload CSV to a volume first, then:
-df = spark.read.csv("/Volumes/your_catalog/your_schema/ghana_data/ghana_facilities.csv",
-                     header=True, inferSchema=True)
-
-# Save as managed Delta table
-df.write.format("delta").saveAsTable("your_catalog.your_schema.ghana_facilities")
-
-# Add column descriptions for Genie (CRITICAL for good Text-to-SQL)
-spark.sql("""
-  ALTER TABLE your_catalog.your_schema.ghana_facilities
-  ALTER COLUMN name COMMENT 'Official name of the healthcare facility or NGO'
-""")
-spark.sql("""
-  ALTER TABLE your_catalog.your_schema.ghana_facilities
-  ALTER COLUMN procedure COMMENT 'JSON array of clinical procedures performed at facility, e.g. surgeries, diagnostics'
-""")
-spark.sql("""
-  ALTER TABLE your_catalog.your_schema.ghana_facilities
-  ALTER COLUMN equipment COMMENT 'JSON array of medical devices and infrastructure at facility'
-""")
-spark.sql("""
-  ALTER TABLE your_catalog.your_schema.ghana_facilities
-  ALTER COLUMN capability COMMENT 'JSON array of care levels, accreditations, programs, staffing info'
-""")
-spark.sql("""
-  ALTER TABLE your_catalog.your_schema.ghana_facilities
-  ALTER COLUMN facilityTypeId COMMENT 'Type of facility: hospital, clinic, dentist, pharmacy, or doctor'
-""")
-spark.sql("""
-  ALTER TABLE your_catalog.your_schema.ghana_facilities
-  ALTER COLUMN address_stateOrRegion COMMENT 'Ghana region name (may need normalization)'
-""")
-# ... add comments for all key columns
-```
-
-#### Phase 1 (Data Layer): Create Vector Search Index
-
-```python
-# In a Databricks notebook:
-from databricks.vector_search.client import VectorSearchClient
-
-vsc = VectorSearchClient()
-
-# Create a vector search endpoint (one-time)
-vsc.create_endpoint(name="ghana-medical-vs", endpoint_type="STANDARD")
-
-# Create the index — Databricks auto-generates embeddings!
-vsc.create_delta_sync_index(
-    endpoint_name="ghana-medical-vs",
-    index_name="your_catalog.your_schema.ghana_facilities_index",
-    source_table_name="your_catalog.your_schema.ghana_facilities",
-    pipeline_type="TRIGGERED",
-    primary_key="unique_id",
-    embedding_source_columns=[
-        {"name": "procedure", "model_endpoint_name": "databricks-gte-large-en"},
-        {"name": "equipment", "model_endpoint_name": "databricks-gte-large-en"},
-        {"name": "capability", "model_endpoint_name": "databricks-gte-large-en"},
-    ],
-    columns_to_sync=["name", "facilityTypeId", "address_city", "address_stateOrRegion", "specialties"]
-)
-```
-
-#### Phase 2 (Agents): Set Up Genie for Text-to-SQL
-
-1. In Databricks UI → **Genie** → Create new Genie Space
-2. Add your `ghana_facilities` table (and normalized sub-tables if created)
-3. Add **custom instructions**:
-   ```
-   This dataset contains healthcare facilities in Ghana from the Virtue Foundation.
-   The 'procedure' column contains JSON arrays of clinical procedures.
-   The 'equipment' column contains JSON arrays of medical devices.
-   The 'capability' column contains JSON arrays of care levels and programs.
-   The 'specialties' column contains JSON arrays of camelCase medical specialty strings.
-   When asked about facility counts by specialty, query the specialties column.
-   When asked about regions, use address_stateOrRegion (note: needs normalization).
-   ```
-4. Add **example SQL queries** to guide Genie:
-
-   ```sql
-   -- How many hospitals have cardiology?
-   SELECT COUNT(*) FROM ghana_facilities
-   WHERE facilityTypeId = 'hospital' AND specialties LIKE '%cardiology%';
-
-   -- Which region has the most hospitals?
-   SELECT address_stateOrRegion, COUNT(*) as cnt FROM ghana_facilities
-   WHERE facilityTypeId = 'hospital'
-   GROUP BY address_stateOrRegion ORDER BY cnt DESC;
-   ```
-
-5. From your local app, call Genie via the Databricks SDK or REST API
-
-#### Phase 2 (Agents): Use MLflow Tracing for Citations
-
-```python
-import mlflow
-
-# Enable autologging for LangChain/LangGraph
-mlflow.langchain.autolog()
-
-# Or manually trace agent steps:
-@mlflow.trace(name="sql_agent", span_type="AGENT")
-def sql_agent_call(query: str) -> dict:
-    """Traced wrapper for the SQL Agent. Takes a natural language query,
-    generates SQL, executes it against DuckDB/Genie, and returns the
-    generated SQL string, result rows, and cited row IDs. The @mlflow.trace
-    decorator logs inputs/outputs as a span for the citation trail."""
-    # ... generate and execute SQL ...
-    return {"sql": generated_sql, "results": results, "row_ids": cited_rows}
-
-@mlflow.trace(name="medical_reasoning", span_type="AGENT")
-def medical_reasoning_call(facility_data: dict) -> dict:
-    """Traced wrapper for the Medical Reasoning Agent. Takes facility data
-    (procedures, equipment, capabilities) and uses an LLM to detect
-    anomalies like procedure-equipment mismatches. Returns a verdict
-    (CLEAN/WARNING/FLAG), the reason, and supporting evidence."""
-    # ... LLM reasoning over facility data ...
-    return {"verdict": "FLAG", "reason": "...", "evidence": "..."}
-```
-
-This gives you the **agentic-step-level citations** stretch goal almost for free. Each traced span captures inputs and outputs, showing exactly which data was used at each step.
-
-#### Phase 3 (Frontend): Connect Streamlit to Databricks
-
-```python
-from databricks.sdk import WorkspaceClient
-
-# Initialize client (use token from .env)
-w = WorkspaceClient(
-    host="https://your-workspace.cloud.databricks.com",
-    token="your-personal-access-token"
-)
-
-# Query via Genie (Text-to-SQL)
-# Use the Genie API to submit natural language queries
-
-# Query Vector Search
-results = w.vector_search_indexes.query_index(
-    index_name="your_catalog.your_schema.ghana_facilities_index",
-    columns=["name", "procedure", "equipment", "capability", "address_city"],
-    query_text="cataract surgery ophthalmology",
-    num_results=10
-)
-
-# Call Model Serving for LLM reasoning
-response = w.serving_endpoints.query(
-    name="databricks-meta-llama-3-3-70b-instruct",
-    messages=[{"role": "user", "content": "Analyze this facility data for anomalies: ..."}]
-)
-```
-
-### 🏆 Why Databricks Integration Wins Points
-
-1. **Genie as Text-to-SQL** replaces a hand-rolled SQL agent with a battle-tested, metadata-aware solution
-3. **Vector Search** with auto-embedding is more impressive than local FAISS (shows production-readiness)
-4. **MLflow Tracing** directly addresses the citation stretch goal with professional-grade observability
-5. **Unity Catalog** shows data governance awareness — important for healthcare data
-6. **Aligns with VF's production path** — their actual agent ships on Databricks by June 7th
-
-### ⚠️ Databricks Risks
-
-- **Daily compute quotas** — If you exceed limits, compute pauses until next day. Do data upload + index creation EARLY (before hackathon if possible)
-- **No GPU access** — Fine-tuning is not feasible; use pre-built foundation models
-- **Network latency** — Databricks API calls add latency vs local DuckDB. Keep SQL Agent calls to Genie but do geospatial math locally
-- **Fallback plan** — If Databricks is slow or hits quota, ensure local DuckDB + ChromaDB still works as a complete backup
-
-### Decision Matrix: Databricks vs Local
-
-| Task              | Use Databricks When...                            | Use Local When...                                      |
-| ----------------- | ------------------------------------------------- | ------------------------------------------------------ |
-| **Text-to-SQL**   | Always (Genie is the recommended approach)        | Fallback if Genie API is slow                          |
-| **Vector Search** | Semantic search over free-form text               | Quick prototyping / testing                            |
-| **LLM Calls**     | Model Serving for foundation models               | You have OpenAI/Anthropic API keys with faster latency |
-| **Data Storage**  | Unity Catalog as source of truth                  | DuckDB for fast local iteration                        |
-| **Agent Tracing** | MLflow Tracing for citation stretch goal          | Skip if running out of time                            |
-| **Geospatial**    | Never (not a Databricks strength)                 | Always local (Haversine, spatial clustering)           |
-| **Frontend**      | Databricks Dashboards (only if no Streamlit time) | Streamlit (better UX, more flexible)                   |
+| Stretch Goal | Technology | How to Add | Docs |
+|---|---|---|---|
+| **Geospatial cold-spots** | Local Python + Folium | Pre-compute at startup for common specialties, overlay red circles on Folium map | — |
+| **Planning dashboard** | Streamlit | Add summary cards (flagged facilities, desert regions) above the chat | [docs.streamlit.io](https://docs.streamlit.io/) |
+| **Composite queries** | LangGraph fan-out | Supervisor routes to multiple agent nodes in parallel (SQL + RAG), synthesis merges both | [langchain-ai.github.io/langgraph](https://langchain-ai.github.io/langgraph/) |
+| **Mosaic AI Agent deploy** | Mosaic AI Agent Framework | Wrap the LangGraph graph as a `ChatAgent`, deploy on Databricks serving endpoint | [docs.databricks.com/en/generative-ai/agent-framework](https://docs.databricks.com/en/generative-ai/agent-framework/author-agent.html) |
+| **LangGraph Studio** | LangGraph Platform | Visual debugger for the agent graph — step through nodes, inspect state | [langchain-ai.github.io/langgraph/concepts/langgraph_studio](https://langchain-ai.github.io/langgraph/concepts/langgraph_studio/) |
 
 ---
 
-## 🚀 Deployment Strategy
+## Must-Have Queries (Official VF Question Bank)
 
-Two deployment paths: **Local** (MVP, demo-day default) and **Databricks-hosted** (stretch, production-ready).
-
-```mermaid
-flowchart TB
-    subgraph LOCAL["🖥 Option A — Local Deployment (MVP)"]
-        direction TB
-        L1["Developer laptop or VM"]
-        L2["Python .venv + requirements.txt"]
-        L3["Streamlit serves frontend<br/><code>streamlit run src/frontend/app.py</code>"]
-        L4["DuckDB (SQL) + ChromaDB (vectors)<br/>both in-process, zero infra"]
-        L5["OpenAI API for LLM + embeddings"]
-        L1 --> L2 --> L3 --> L4
-        L3 --> L5
-    end
-
-    subgraph DB["☁️ Option B — Databricks-Hosted (Stretch)"]
-        direction TB
-        D1["Databricks Free Edition workspace"]
-        D2["Unity Catalog Delta table<br/>(source of truth)"]
-        D3["Genie Space — Text-to-SQL"]
-        D4["Vector Search index<br/>(auto-embedded)"]
-        D5["Model Serving — Llama 3.3 70B"]
-        D6["MLflow Tracing — citations"]
-        D7["Streamlit on laptop connects<br/>to Databricks via SDK + token"]
-        D1 --> D2 --> D3
-        D2 --> D4
-        D1 --> D5
-        D1 --> D6
-        D7 --> D3
-        D7 --> D4
-        D7 --> D5
-    end
-
-    style LOCAL fill:#EBF5FB,stroke:#2E86C1
-    style DB fill:#FEF9E7,stroke:#F39C12
-```
-
-### Option A — Local Deployment (MVP Default)
-
-**Use this for the hackathon demo.** Everything runs on one machine, zero cloud dependencies.
-
-| Component | How it runs | Port / path |
-|---|---|---|
-| **Streamlit** | `make run` → `streamlit run src/frontend/app.py` | `http://localhost:8501` |
-| **DuckDB** | In-process Python library, file at `data/ghana_facilities.duckdb` | No server needed |
-| **ChromaDB** | In-process Python library, persisted to `data/chroma/` | No server needed |
-| **LLM** | OpenAI API calls (`OPENAI_API_KEY` in `.env`) | Remote API |
-| **Embeddings** | OpenAI `text-embedding-3-small` | Remote API |
-
-**Setup (one command):**
-
-```bash
-make setup   # creates venv, installs deps, copies .env.example → .env
-# Edit .env with your OPENAI_API_KEY
-make run     # launches Streamlit on localhost:8501
-```
-
-**Pros:** Fast iteration, no cloud setup, works offline except for LLM calls, reliable for demo.
-**Cons:** No Databricks features (Genie, Vector Search, MLflow), single machine only.
-
-### Option B — Databricks-Hosted (Stretch)
-
-**Streamlit still runs locally**, but the backend services run on Databricks Free Edition. The local app connects to Databricks via the SDK using a Personal Access Token.
-
-| Component | Where it runs | How the local app connects |
-|---|---|---|
-| **Streamlit** | Local (`make run`) | — |
-| **SQL queries** | Databricks Genie (Text-to-SQL) | `databricks-sdk` → Genie API |
-| **Vector search** | Databricks Vector Search | `databricks-sdk` → VS query endpoint |
-| **LLM** | Databricks Model Serving (Llama 3.3 70B) | `databricks-sdk` → serving endpoint |
-| **Tracing** | MLflow on Databricks | `mlflow` SDK with Databricks tracking URI |
-| **Data** | Unity Catalog Delta table | Uploaded once via notebook |
-
-**Setup:**
-
-```bash
-# 1. Sign up at https://signup.databricks.com (Free Edition)
-# 2. Run notebooks/databricks_setup.py in a Databricks notebook to:
-#    - Upload CSV → Unity Catalog Delta table
-#    - Add column descriptions for Genie
-#    - Create Vector Search index
-#    - Create Genie Space with example queries
-# 3. Set these in .env:
-DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
-DATABRICKS_TOKEN=dapi...
-USE_DATABRICKS_GENIE=true
-USE_DATABRICKS_VECTOR_SEARCH=true
-USE_DATABRICKS_MODEL_SERVING=true
-# 4. Run locally as usual:
-make run
-```
-
-**Pros:** Impresses judges, production-grade infrastructure, Genie handles complex SQL, MLflow gives citation traceability.
-**Cons:** Network latency, daily compute quotas, requires pre-hackathon setup.
-
-### Recommended Approach
-
-```mermaid
-flowchart LR
-    A["Foundation + Core<br/><b>Build on Local</b><br/>DuckDB + ChromaDB<br/>Get MVP working"] --> B["MVD Checkpoint<br/><b>Does it demo?</b>"]
-    B -->|Yes| C["Surface<br/><b>Add Databricks</b><br/>Flip feature flags<br/>one by one"]
-    B -->|No| D["Surface<br/><b>Fix MVP</b><br/>Stay local<br/>Ship what works"]
-    C --> E["Launch<br/><b>Demo prep</b>"]
-    D --> E
-
-    style A fill:#3498DB,color:#fff
-    style B fill:#E74C3C,color:#fff
-    style C fill:#F39C12,color:#fff
-    style D fill:#95A5A6,color:#fff
-    style E fill:#2ECC71,color:#fff
-```
-
-> **Build local first. Flip to Databricks incrementally using feature flags.** Never be in a state where the app doesn't run.
+| #   | Question                                                    | Agent Node → Databricks Tool | Priority  |
+| --- | ----------------------------------------------------------- | --- | --------- |
+| 1.1 | How many hospitals have cardiology?                         | SQL Agent → Genie | Must Have |
+| 1.2 | How many hospitals in [region] can perform [procedure]?     | SQL Agent → Genie | Must Have |
+| 1.3 | What services does [Facility Name] offer?                   | RAG Agent → Vector Search | Must Have |
+| 1.4 | Are there clinics in [Area] that do [Service]?              | RAG Agent → Vector Search | Must Have |
+| 1.5 | Which region has the most [Type] hospitals?                 | SQL Agent → Genie | Must Have |
+| 2.1 | Hospitals treating [condition] within [X] km of [location]? | Geo Agent (local) + SQL Agent → Genie | Must Have |
+| 2.3 | Largest geographic cold spots for [procedure]?              | Geo Agent (local) + SQL Agent → Genie | Must Have |
+| 4.4 | Facilities claiming unrealistic procedures for their size?  | Medical Reasoning → Model Serving | Must Have |
+| 4.7 | Correlations between facility characteristics?              | SQL Agent → Genie | Must Have |
+| 4.8 | High procedure breadth with minimal equipment?              | Medical Reasoning → Model Serving | Must Have |
+| 4.9 | Things that shouldn't move together?                        | Medical Reasoning → Model Serving | Must Have |
+| 6.1 | Where is the workforce for [subspecialty] practicing?       | SQL Agent → Genie + Synthesis LLM | Must Have |
+| 7.5 | Which procedures depend on very few facilities?             | SQL Agent → Genie | Must Have |
+| 7.6 | Oversupply vs scarcity by complexity?                       | SQL Agent → Genie + Synthesis LLM | Must Have |
+| 8.3 | Gaps where no organizations work despite evident need?      | Geo + SQL + Medical Reasoning (fan-out) | Must Have |
 
 ---
 
-## 🎯 Must-Have Queries (Official VF Question Bank)
+## Schema & Pydantic Models (From Dataset Creation Pipeline)
 
-| #   | Question                                                    | Sub-Agent           | Priority  |
-| --- | ----------------------------------------------------------- | ------------------- | --------- |
-| 1.1 | How many hospitals have cardiology?                         | SQL                 | Must Have |
-| 1.2 | How many hospitals in [region] can perform [procedure]?     | SQL                 | Must Have |
-| 1.3 | What services does [Facility Name] offer?                   | Vector Search       | Must Have |
-| 1.4 | Are there clinics in [Area] that do [Service]?              | Vector Search       | Must Have |
-| 1.5 | Which region has the most [Type] hospitals?                 | SQL                 | Must Have |
-| 2.1 | Hospitals treating [condition] within [X] km of [location]? | SQL + Geo           | Must Have |
-| 2.3 | Largest geographic cold spots for [procedure]?              | Geo + SQL           | Must Have |
-| 4.4 | Facilities claiming unrealistic procedures for their size?  | Medical Reasoning   | Must Have |
-| 4.7 | Correlations between facility characteristics?              | SQL                 | Must Have |
-| 4.8 | High procedure breadth with minimal equipment?              | Medical Reasoning   | Must Have |
-| 4.9 | Things that shouldn't move together?                        | Medical Reasoning   | Must Have |
-| 6.1 | Where is the workforce for [subspecialty] practicing?       | SQL + Medical       | Must Have |
-| 7.5 | Which procedures depend on very few facilities?             | SQL                 | Must Have |
-| 7.6 | Oversupply vs scarcity by complexity?                       | SQL + Medical       | Must Have |
-| 8.3 | Gaps where no organizations work despite evident need?      | SQL + Geo + Medical | Must Have |
+> These are the **exact** models used by the Virtue Foundation to extract the dataset. Understanding them is critical for interpreting the data.
 
----
+### Organization Types
 
-## 📐 Pydantic Models (From Dataset Creation Pipeline)
+```python
+class OrganizationExtractionOutput(BaseModel):
+    ngos: Optional[List[str]]           # Non-profits delivering healthcare in low-income settings
+    facilities: Optional[List[str]]     # Physical sites delivering in-person medical care
+    other_organizations: Optional[List[str]]  # Entities that don't qualify as facility or NGO
+```
 
-### Facility Facts — Free-Form Column Definitions
+### Facility Fields
+
+```python
+class Facility(BaseModel):
+    name: str                              # Official name
+    facilityTypeId: Literal["hospital", "pharmacy", "doctor", "clinic", "dentist"]
+    operatorTypeId: Literal["public", "private"]
+    affiliationTypeIds: List[Literal["faith-tradition", "philanthropy-legacy",
+                                     "community", "academic", "government"]]
+    description: str                       # Brief paragraph on services/history
+    area: int                              # Floor area sqm (VERY SPARSE — 2 rows)
+    numberDoctors: int                     # Doctor count (VERY SPARSE — 3 rows)
+    capacity: int                          # Bed capacity (VERY SPARSE — 23 rows)
+    # Address fields: address_city, address_stateOrRegion, address_country, etc.
+    # Contact fields: phone_numbers, email, websites, officialWebsite, etc.
+```
+
+### Free-Form Text Columns (Core of IDP Challenge)
 
 ```python
 class FacilityFacts(BaseModel):
-    """Pydantic model representing the three free-form text columns extracted
-    from medical facility web pages. These are the core fields for IDP
-    (Intelligent Document Parsing) — each is a list of plain-English
-    declarative statements extracted by an LLM from the source HTML."""
-
-    procedure: Optional[List[str]]
-        # Specific clinical services — medical/surgical interventions and diagnostic
-        # procedures (e.g., operations, endoscopy, imaging tests)
-    equipment: Optional[List[str]]
-        # Physical medical devices and infrastructure — imaging machines, surgical/OR
-        # technologies, monitors, lab analyzers, critical utilities
-    capability: Optional[List[str]]
-        # Medical capabilities — trauma/emergency levels, specialized units, clinical
-        # programs, accreditations, care setting, staffing, patient capacity
+    procedure: List[str]    # Clinical services — surgeries, diagnostics, screenings
+    equipment: List[str]    # Medical devices — MRI, CT, X-ray, surgical tools, utilities
+    capability: List[str]   # Care levels — trauma levels, ICU, accreditations, staffing, capacity
 ```
 
-### Valid Medical Specialties (case-sensitive camelCase)
+**Extraction rules:** Facts are declarative English statements traceable to source content. No generic knowledge. Empty arrays `[]` = no data found (valid signal, not missing data).
+
+### Medical Specialties (case-sensitive camelCase)
 
 ```
 internalMedicine, familyMedicine, pediatrics, cardiology, generalSurgery,
@@ -1351,69 +790,114 @@ neonatologyPerinatalMedicine, endocrinologyAndDiabetesAndMetabolism,
 plasticSurgery, cardiacSurgery, geriatricsInternalMedicine, orthodontics
 ```
 
+| Term in data | Maps to |
+|---|---|
+| "Hospital" (generic) | `internalMedicine` |
+| "Clinic" (generic) | `familyMedicine` |
+| "Emergency", "ER" | `emergencyMedicine` |
+| "Surgery" (generic) | `generalSurgery` |
+| "Eye", "Ophthalmic" | `ophthalmology` |
+| "Cardiac Surgery" | `cardiacSurgery` |
+| "Pediatric", "Children" | `pediatrics` |
+| "Maternity", "Obstetric" | `gynecologyAndObstetrics` |
+| "Trauma" | `criticalCareMedicine` |
+| "Oncology", "Cancer" | `medicalOncology` |
+
 ---
 
-## 🚫 Anti-Patterns
+## Anti-Patterns
 
-1. **Don't rely on capacity/numberDoctors for anomaly detection** — only 23 and 3 rows have these. Use procedure-equipment cross-referencing instead.
-2. **Don't skip geocoding** — No lat/lon in data. Use city lookup table. The map is your #1 social impact visual.
-3. **Don't treat empty arrays as missing data** — `[]` means "nothing found/extracted", which itself is useful signal (facility with no procedures listed = data gap).
-4. **Don't ignore duplicate facility names** — 71 names appear >1 time. Deduplicate or merge intelligently.
-5. **Don't hardcode demo answers** — System must generalize to new queries.
+1. **Don't rely on capacity/numberDoctors** — only 23 and 3 rows have these. Use procedure-equipment cross-referencing.
+2. **Don't skip geocoding** — No lat/lon in data. City lookup table is required for the map.
+3. **Don't treat `[]` as missing** — Empty array = "nothing found", which is useful signal.
+4. **Don't ignore duplicates** — 71 names appear >1 time. Deduplicate in the notebook.
+5. **Don't hardcode answers** — System must generalize to new queries.
+6. **Don't build a custom SQL agent** — Use Genie. It already understands your column descriptions.
+7. **Don't over-engineer LangGraph** — Start with linear routing (supervisor → one agent → synthesis). Add fan-out later as a stretch goal.
 
 ---
 
-## 🎬 Demo Script (5 Minutes)
+## Demo Script (5 Minutes)
 
-| Time      | Action                                                        | Shows                                     |
-| --------- | ------------------------------------------------------------- | ----------------------------------------- |
-| 0:00–1:00 | Problem statement + architecture slide                        | Vision, social impact, multi-agent design |
-| 1:00–2:00 | Query: "What services does Korle Bu Teaching Hospital offer?" | Vector search + citations                 |
-| 2:00–3:00 | Query: "Which facilities claim surgery but lack equipment?"   | Medical reasoning + anomaly detection     |
-| 3:00–4:00 | Query: "Show medical deserts for ophthalmology"               | Map visualization + cold spots            |
-| 4:00–5:00 | Query: "Where should the next mission go?"                    | Planning synthesis + recommendation       |
+| Time      | Action                                                        | Shows |
+| --------- | ------------------------------------------------------------- | ----- |
+| 0:00–1:00 | Problem statement + architecture (LangGraph + Databricks)     | Vision, social impact |
+| 1:00–2:00 | Query: "What services does Korle Bu Teaching Hospital offer?" | RAG Agent → Vector Search |
+| 2:00–3:00 | Query: "Which facilities claim surgery but lack equipment?"   | Medical Reasoning → Model Serving |
+| 3:00–4:00 | Query: "Show medical deserts for ophthalmology"               | Geo Agent → Map overlay |
+| 4:00–5:00 | Query: "Where should the next mission go?"                    | Fan-out → SQL + Geo + LLM synthesis |
 
 **Closing line**: "Every data point we extract represents a patient who could receive care sooner."
 
 ---
 
-## 🔗 Resources
+## Resources
 
+### Challenge
 - **Dataset CSV**: https://drive.google.com/file/d/1qgmLHrJYu8TKY2UeQ-VFD4PQ_avPoZ3d/view
 - **Schema Docs**: https://drive.google.com/file/d/1CvMTA2DtwZxa9-sBsw57idCkIlnrN32r/view
 - **VF Agent Questions**: https://docs.google.com/document/d/1ETRk0KEcWUJExuhWKBQkw1Tq-D63Bdma1rPAwoaPiRI/edit
 - **VFMatch Globe**: https://vfmatch.org/explore?appMode=globe
 - **Databricks x VF Blog**: https://www.databricks.com/blog/elevating-global-health-databricks-and-virtue-foundation
-- **Databricks Free Edition Signup**: https://signup.databricks.com
-- **Free Edition Docs**: https://docs.databricks.com/aws/en/getting-started/free-edition
-- **Free Edition Limitations**: https://docs.databricks.com/aws/en/getting-started/free-edition-limitations
-- **Databricks Vector Search**: https://docs.databricks.com/aws/en/generative-ai/vector-search
-- **Databricks Genie**: https://docs.databricks.com/aws/en/genie/
-- **MLflow Tracing**: https://docs.databricks.com/aws/en/mlflow
-- **Agent Framework**: https://docs.databricks.com/aws/en/generative-ai/agent-framework/author-agent
+
+### Databricks Documentation (Free Edition)
+- **Free Edition Signup**: https://signup.databricks.com
+- **Free Edition Overview**: https://docs.databricks.com/en/getting-started/free-edition.html
+- **Free Edition Limitations**: https://docs.databricks.com/en/getting-started/free-edition-limitations.html
+- **Unity Catalog**: https://docs.databricks.com/en/data-governance/unity-catalog/index.html
+- **Genie (Text-to-SQL)**: https://docs.databricks.com/en/genie/index.html
+- **Mosaic AI Vector Search**: https://docs.databricks.com/en/generative-ai/vector-search.html
+- **Model Serving**: https://docs.databricks.com/en/machine-learning/model-serving/index.html
+- **MLflow Tracing**: https://docs.databricks.com/en/mlflow/index.html
+- **Agent Framework**: https://docs.databricks.com/en/generative-ai/agent-framework/author-agent.html
+- **Databricks SDK for Python**: https://docs.databricks.com/en/dev-tools/sdk-python.html
+- **Notebooks**: https://docs.databricks.com/en/notebooks/index.html
+- **Personal Access Tokens**: https://docs.databricks.com/en/dev-tools/auth/pat.html
+
+### Agent Orchestration
 - **LangGraph Docs**: https://langchain-ai.github.io/langgraph/
+- **LangGraph Concepts — State Graphs**: https://langchain-ai.github.io/langgraph/concepts/low_level/
+- **LangGraph Conditional Edges**: https://langchain-ai.github.io/langgraph/concepts/low_level/#conditional-edges
+- **LangGraph + MLflow**: https://docs.databricks.com/en/mlflow/llm-tracing/langgraph-tracing.html
+
+### Frontend
 - **Streamlit Docs**: https://docs.streamlit.io/
+- **Folium Docs**: https://python-visualization.github.io/folium/
 
 ---
 
-## ✅ Definition of Done
+## Risks
+
+- **Daily compute quotas** — Do data upload + index creation EARLY. If exceeded, compute pauses until next day
+- **No GPU access** — Fine-tuning not feasible. Use pre-built foundation models via Model Serving
+- **Network latency** — Databricks API calls add ~200-500ms. Keep geospatial math local
+- **Genie accuracy** — May generate wrong SQL. Add column descriptions and example queries to improve
+- **LangGraph complexity** — Keep the graph simple (linear routing MVP). Fan-out is stretch only
+- **Fallback** — If Databricks is down, swap `src/tools/` wrappers to use OpenAI + local DuckDB
+
+---
+
+## Definition of Done
 
 ### MVP (Must ship)
 
-- [ ] CSV loaded, cleaned, deduplicated, geocoded into DuckDB + ChromaDB
-- [ ] Supervisor routes queries to correct sub-agent(s)
-- [ ] SQL Agent answers count/aggregation queries (Q1.1, Q1.2, Q1.5)
-- [ ] Vector Search Agent answers free-text queries (Q1.3, Q1.4)
-- [ ] Medical Reasoning Agent detects anomalies (Q4.4, Q4.8)
-- [ ] Interactive Folium map with facility markers
-- [ ] Streamlit chat interface with example query buttons
-- [ ] Basic error handling (try/except, "No results" fallback)
+- [ ] Databricks workspace: Delta table in Unity Catalog with column descriptions
+- [ ] Genie Space configured with instructions and example queries
+- [ ] Vector Search index created over procedure/equipment/capability columns
+- [ ] LangGraph state graph: supervisor → conditional routing → agent nodes → synthesis
+- [ ] SQL Agent node calls Genie for structured queries
+- [ ] RAG Agent node calls Vector Search for semantic queries
+- [ ] Medical Reasoning node calls Model Serving for anomaly detection
+- [ ] MLflow `@mlflow.trace` on `run_agent()` for citation trail
+- [ ] Streamlit app calls `run_agent()` and displays results
+- [ ] Folium map with color-coded facility markers
+- [ ] Basic error handling (try/except on all Databricks SDK calls)
 - [ ] 5 demo queries work end-to-end
 
 ### Stretch (if time permits)
 
-- [ ] Geospatial cold-spot detection + medical desert overlay on map
-- [ ] Row-level citations in every response
+- [ ] Geospatial agent node: cold-spot detection + medical desert overlay on map
+- [ ] LangGraph fan-out: composite queries routing to multiple agents in parallel
 - [ ] Planning dashboard with summary cards
-- [ ] Databricks integration (Unity Catalog, Genie, Vector Search, MLflow Tracing)
-- [ ] Multi-agent composite queries (parallel fan-out / fan-in)
+- [ ] Mosaic AI Agent Framework deployment (LangGraph → ChatAgent → serving endpoint)
+- [ ] LangGraph Studio for visual debugging
