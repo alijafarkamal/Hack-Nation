@@ -1,0 +1,45 @@
+# Core Dependencies
+python-dotenv
+
+# Databricks (optional for local testing)
+databricks-sdk
+
+# LangChain & LangGraph (Latest Compatible Stack)
+langgraph>=0.2.0
+langchain>=0.2.0
+langchain-community
+
+# Data Processing
+pandas
+numpy
+
+# Vector & Embeddings (lightweight)
+chromadb
+sentence-transformers
+
+# Validation & Quality
+pydantic>=2.0
+tenacity
+
+# Geospatial (for medical desert mapping)
+shapely
+
+# Visualization
+plotly
+folium
+
+# Streamlit UI
+streamlit
+streamlit-folium
+
+# Database
+duckdb
+sqlalchemy
+
+# Development Tools
+pytest
+black
+
+# Utils
+requests
+python-dateutil

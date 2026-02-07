@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Virtue Foundation Ghana Medical Facility Dataset Schema",
+  "description": "Real-world facility schema from Virtue Foundation Ghana dataset",
+  "type": "object",
+  "properties": {
+    "pk_unique_id": {
+      "type": "string",
+      "description": "Primary key - unique identifier"
+    },
+    "name": {
+      "type": "string",
+      "description": "Official name of the facility/organization"
+    },
+    "organization_type": {
+      "type": "string",
+      "enum": ["facility", "ngo"],
+      "description": "Type of organization"
+    },
+    "facilityTypeId": {
+      "type": "string",
+      "enum": ["hospital", "pharmacy", "doctor", "clinic", "dentist"],
+      "description": "Type of facility (only for facilities)"
+    },
+    "operatorTypeId": {
+      "type": "string",
+      "enum": ["public", "private"],
+      "description": "Whether facility is publicly or privately operated"
+    },
+    "specialties": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Medical specialties available at the facility (camelCase names)"
+    },
+    "procedure": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Clinical procedures, surgical operations, and medical interventions performed"
+    },
+    "equipment": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Physical medical devices, diagnostic machines, infrastructure"
+    },
+    "capability": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Medical capabilities that define level and types of clinical care"
+    },
+    "phone_numbers": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Phone numbers in E164 format (e.g. '+233392022664')"
+    },
+    "officialWebsite": {
+      "type": "string",
+      "description": "Official website domain"
+    },
+    "email": {
+      "type": "string",
+      "description": "Primary email address"
+    },
+    "address_line1": {
+      "type": "string",
+      "description": "Street address only (building number, street name)"
+    },
+    "address_city": {
+      "type": "string",
+      "description": "City or town name"
+    },
+    "address_stateOrRegion": {
+      "type": "string",
+      "description": "State, region, or province"
+    },
+    "address_country": {
+      "type": "string",
+      "description": "Full country name"
+    },
+    "address_countryCode": {
+      "type": "string",
+      "description": "ISO alpha-2 country code"
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief paragraph describing the facility's services and/or history"
+    },
+    "numberDoctors": {
+      "type": "integer",
+      "description": "Total number of medical doctors working at the facility"
+    },
+    "capacity": {
+      "type": "integer",
+      "description": "Overall inpatient bed capacity"
+    },
+    "yearEstablished": {
+      "type": "integer",
+      "description": "Year the organization was established"
+    },
+    "source_url": {
+      "type": "string",
+      "description": "Source URL where information was extracted from"
+    }
+  },
+  "required": ["pk_unique_id", "name", "organization_type"]
+}
