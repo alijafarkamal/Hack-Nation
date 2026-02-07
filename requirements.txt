@@ -1,0 +1,22 @@
+# Agent orchestration
+langgraph==1.0.8
+langchain==1.2.9
+langchain-openai==1.1.7
+
+# Databricks SDK
+databricks-sdk==0.85.0
+databricks-vectorsearch==0.64
+mlflow==3.9.0
+
+# Frontend
+streamlit==1.54.0
+streamlit-folium==0.26.1
+folium==0.20.0
+
+# Data (local utilities)
+pandas==3.0.0
+numpy==2.4.2
+python-dotenv==1.2.1
+
+# Testing
+pytest==9.0.2

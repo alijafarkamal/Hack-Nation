@@ -1,0 +1,23 @@
+{
+  "_comment": "Static geocoding lookup: Ghana city name → [lat, lon]. Populate from dataset address_city values after Phase 1.",
+  "Accra": [5.6037, -0.1870],
+  "Kumasi": [6.6885, -1.6244],
+  "Tamale": [9.4034, -0.8393],
+  "Cape Coast": [5.1036, -1.2466],
+  "Takoradi": [4.8845, -1.7554],
+  "Sunyani": [7.3349, -2.3269],
+  "Ho": [6.6000, 0.4714],
+  "Koforidua": [6.0941, -0.2572],
+  "Tema": [5.6698, -0.0166],
+  "Bolgatanga": [10.7856, -0.8514],
+  "Wa": [10.0601, -2.5099],
+  "Techiman": [7.5828, -1.9340],
+  "Obuasi": [6.2024, -1.6652],
+  "Nkawkaw": [6.5500, -0.7667],
+  "Winneba": [5.3500, -0.6167],
+  "Aflao": [6.1167, 1.1833],
+  "Goaso": [6.8000, -2.5167],
+  "Berekum": [7.4500, -2.5833],
+  "Damongo": [9.0833, -1.8167],
+  "Nalerigu": [10.5167, -0.3667]
+}
