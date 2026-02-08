@@ -2,7 +2,7 @@
 
 Provides facility data for the Map tab and Mission Planner dashboard.
 Strategy: try Databricks SQL first, fall back to local CSV.
-All results are enriched with lat/lon from the city-coords lookup.
+All results are cleaned (regions, types, cities filled) regardless of source.
 
 Usage in Streamlit:
     from src.data_loader import load_facilities, load_region_stats, get_all_specialties
@@ -10,6 +10,7 @@ Usage in Streamlit:
 
 import json
 import os
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -72,9 +73,6 @@ GHANA_REGIONS = [
 ]
 
 # ── City-to-Region lookup (static geographic facts) ──────────────────────────
-# Covers every Ghanaian city that appears in the dataset so we can fill
-# missing region values at load time.  Built from Ghana Statistical Service
-# district/region assignments.
 CITY_TO_REGION: dict[str, str] = {
     # Greater Accra
     "Accra": "Greater Accra", "ACCRA": "Greater Accra",
@@ -90,10 +88,11 @@ CITY_TO_REGION: dict[str, str] = {
     "Lapaz": "Greater Accra", "Mataheko": "Greater Accra",
     "Mempeasem": "Greater Accra", "New Ashongman": "Greater Accra",
     "New Weija": "Greater Accra", "Nungua": "Greater Accra",
-    "Odorkor": "Greater Accra", "Osu – Accra East": "Greater Accra",
+    "Odorkor": "Greater Accra", "Osu \u2013 Accra East": "Greater Accra",
     "Pokoase": "Greater Accra", "Teshie": "Greater Accra",
     "North Kaneshie": "Greater Accra", "Darkuman-Nyamekye": "Greater Accra",
     "Maamobi": "Greater Accra", "Dome": "Greater Accra",
+    "Ashongman": "Greater Accra", "Wa": "Upper West",
     # Ashanti
     "Kumasi": "Ashanti", "Ejisu": "Ashanti", "Ejura": "Ashanti",
     "Kwadaso": "Ashanti", "Obuasi": "Ashanti", "Agona Ashanti": "Ashanti",
@@ -106,17 +105,19 @@ CITY_TO_REGION: dict[str, str] = {
     "Nkenkaso": "Ashanti", "Offinso": "Ashanti",
     "Santasi": "Ashanti", "Tikrom": "Ashanti",
     "Asamang": "Ashanti", "Drobonso": "Ashanti",
-    "Kuntanase": "Ashanti",
+    "Kuntanase": "Ashanti", "Tepa": "Ashanti",
     # Western
     "Takoradi": "Western", "TAKORADI": "Western",
     "Sekondi": "Western", "Tarkwa": "Western",
     "Axim": "Western", "Dixcove": "Western",
     "Kojokrom/Sekondi": "Western", "Kwesimintsim": "Western",
     "Aboadze": "Western", "Agona Nkwanta": "Western",
+    "Wassa Mampong": "Western", "Elubo": "Western",
     # Western North
     "Bibiani": "Western North", "Juaboso": "Western North",
     "Sefwi Asawinso": "Western North", "Sefwi Bekwai": "Western North",
     "Sefwi Boinzan": "Western North", "Sefwi Essam": "Western North",
+    "Bodi": "Western North",
     # Central
     "Cape Coast": "Central", "Cabo Corso": "Central",
     "Dunkwa-On-Offin": "Central", "Agona Swedru": "Central",
@@ -130,20 +131,22 @@ CITY_TO_REGION: dict[str, str] = {
     "Mampong-Akwapim": "Eastern", "Somanya": "Eastern",
     "New Abirim": "Eastern", "Adoagyiri-adeiso": "Eastern",
     "Akwatia": "Eastern", "Obosomase": "Eastern",
-    "Odonkawkrom": "Eastern",
+    "Odonkawkrom": "Eastern", "Achiase": "Eastern",
+    "Donkorkrom": "Eastern",
     # Volta
     "Ho": "Volta", "Keta": "Volta", "Aflao": "Volta",
     "Sogakope": "Volta", "Akatsi": "Volta",
     "Hohoe": "Volta", "Anloga": "Volta",
     "Adidome": "Volta", "Nope": "Volta",
+    "Anfoega": "Volta", "Worawora": "Volta",
     # Oti
-    "Drobonso": "Ashanti",  # already above; Drobonso is Ashanti
-    "Bimbila": "North East",
+    "Nkwanta": "Oti", "Dodi Papase": "Oti",
     # Northern
     "Tamale": "Northern", "Yendi": "Northern",
     "Tolon": "Northern", "Karaga": "Northern",
-    "Sromani": "Northern",
+    "Sromani": "Northern", "Walewale": "Northern",
     # North East
+    "Bimbila": "North East",
     "Nalerigu": "North East", "Nogsenia": "North East",
     "Yabologu": "North East",
     # Savannah
@@ -151,9 +154,10 @@ CITY_TO_REGION: dict[str, str] = {
     "Kabiase Gonja": "Savannah",
     # Upper East
     "Bawku": "Upper East", "Sandema": "Upper East",
+    "Mepom": "Upper East",
     # Upper West
     "Daffiama": "Upper West", "Nadawli": "Upper West",
-    "Wechiau": "Upper West",
+    "Wechiau": "Upper West", "Wellembelle": "Upper West",
     # Bono
     "Sunyani": "Bono", "Berekum": "Bono",
     "Dormaa Ahenkro": "Bono", "Goaso": "Bono",
@@ -164,18 +168,16 @@ CITY_TO_REGION: dict[str, str] = {
     "Kintampo": "Bono East",
     # Ahafo
     "Asuofia": "Ahafo", "Ateiku": "Ahafo",
-    # Misc variant spellings / sub-localities
+    # Misc
     "Afransi": "Ashanti", "Lamboya": "Northern",
     "Kparigu": "Northern", "Kawkawti": "Northern",
-    "Mepom": "Upper East", "Zabzugu Tatale": "Northern",
-    "Ghana": "Greater Accra",  # generic "Ghana" → default to capital
-    # Late additions — small towns found in residual check
+    "Zabzugu Tatale": "Northern",
+    "Ghana": "Greater Accra",
     "Abomosu": "Eastern", "Nsuta": "Ashanti",
     "Sefwi": "Western North",
 }
 
-# ── Direct name-to-region + city for all facilities with no city in CSV ───────
-# Looked up via Gemini API + manual verification for 64 facilities.
+# ── Direct name-to-region + city for facilities with no city in CSV ──────────
 _NAME_TO_REGION: dict[str, str] = {
     "Accra Specialist Eye Hospital": "Greater Accra",
     "ACHIASE HEALTH CENTRE": "Eastern",
@@ -250,18 +252,15 @@ _NAME_TO_CITY: dict[str, str] = {
     "Amang Health Centre": "Amang",
     "Anane Aya Maternity Home": "Kumasi",
     "Anhwiaso Health Centre": "Anhwiaso",
-    "Beaver Dental": "Accra",
-    "Beaver Medical": "Accra",
+    "Beaver Dental": "Accra", "Beaver Medical": "Accra",
     "Bodi Anglican Clinic - Ghana": "Bodi",
     "CAMFAP Maternity Clinic": "Kumasi",
     "Cathedral Herbal & Fertility Clinic": "Accra",
     "Catholic Hospital, Anfoega": "Anfoega",
     "Cheerful Hearts Foundation": "Accra",
-    "Diabetes Youth Care": "Accra",
-    "Digestive Diseases Aid": "Accra",
+    "Diabetes Youth Care": "Accra", "Digestive Diseases Aid": "Accra",
     "Dormaa Presbyterian Hospital": "Dormaa Ahenkro",
-    "Elubo Health Center": "Elubo",
-    "Emofra Africa": "Accra",
+    "Elubo Health Center": "Elubo", "Emofra Africa": "Accra",
     "Evergreen Opticals - Burma Camp, Recce Junction": "Accra",
     "Foundation Human Nature": "Accra",
     "Ghana Make A Difference": "Accra",
@@ -279,31 +278,25 @@ _NAME_TO_CITY: dict[str, str] = {
     "Medicas Hospital, Mampong Akwapim": "Mampong-Akwapim",
     "Methodist Clinic, Amakom-lake Bosomtwe": "Kumasi",
     "Methodist Faith Healing Hospital": "Kumasi",
-    "Newstar Ear Centre Ghana": "Accra",
-    "Nkwanta Clinic": "Nkwanta",
+    "Newstar Ear Centre Ghana": "Accra", "Nkwanta Clinic": "Nkwanta",
     "Offinsoman Pharmacy": "Offinso",
     "Our Lady Of Fatima Clinic - Ghana": "Accra",
-    "Our Ladys Clinic": "Accra",
-    "Pantang Hospital": "Accra",
+    "Our Ladys Clinic": "Accra", "Pantang Hospital": "Accra",
     "Police Clinic, Maxwell Road": "Accra",
-    "Raphal Medical Centre": "Accra",
-    "Rescue Clinic": "Accra",
+    "Raphal Medical Centre": "Accra", "Rescue Clinic": "Accra",
     "Revoobit MirraCell+ Gh.": "Accra",
-    "Sacred Heart Hospital": "Accra",
-    "Salem Maternity Home": "Accra",
+    "Sacred Heart Hospital": "Accra", "Salem Maternity Home": "Accra",
     "Salifu Memorial Clinic": "Tamale",
     "Shekinah Herbal TV GH": "Accra",
     "Sogakope District Hospital": "Sogakope",
     "ST. FF Specialist Hospital": "Accra",
     "St. Martin's Catholic Hospi": "Agroyesum",
     "St. Mary Theresa Catholic Hospital": "Dodi Papase",
-    "SVG Africa": "Accra",
-    "Tepa District Hospital": "Tepa",
+    "SVG Africa": "Accra", "Tepa District Hospital": "Tepa",
     "The Community Hospital Ashongman": "Ashongman",
     "The Hunger Project-Ghana": "Accra",
     "The Salvation Army Health Services": "Accra",
-    "VALCO HOSPITAL": "Tema",
-    "Virtue Medical Centre": "Wa",
+    "VALCO HOSPITAL": "Tema", "Virtue Medical Centre": "Wa",
     "Wassa Mampong Health Center": "Wassa Mampong",
     "Wellembelle Health Centre": "Wellembelle",
 }
@@ -315,15 +308,12 @@ _TYPE_KEYWORDS: list[tuple[list[str], str]] = [
       "health center", "health post", "maternity home", "chps"], "clinic"),
     (["pharmacy", "drug", "chemical", "pharma"], "pharmacy"),
     (["dental", "dentist", "dentistry"], "dentist"),
-    (["laboratory", "lab", "diagnostic"], "clinic"),  # lab → clinic bucket
+    (["laboratory", "lab", "diagnostic"], "clinic"),
 ]
 
 
 def _infer_facility_type(name: str) -> str:
-    """Infer facility type from its name using keyword matching.
-
-    Falls back to 'clinic' (most common primary care type in Ghana).
-    """
+    """Infer facility type from its name using keyword matching."""
     if not name:
         return "clinic"
     low = name.lower()
@@ -335,32 +325,20 @@ def _infer_facility_type(name: str) -> str:
 
 
 def _infer_region(city: str, name: str) -> str:
-    """Three-layer region inference:
-    1. Static CITY_TO_REGION lookup (covers ~125 cities)
-    2. Case-insensitive / title-case fallback
-    3. Facility name heuristics — word-boundary matching only
-       (avoids false positives like "Ho" matching "Hospital")
-    """
-    import re
-
+    """Infer region from city name or facility name (word-boundary safe)."""
     if city:
-        # Layer 1: exact match
         region = CITY_TO_REGION.get(city)
         if region:
             return region
-        # Layer 2: title-case / upper-case fallback
         region = CITY_TO_REGION.get(city.title()) or CITY_TO_REGION.get(city.upper())
         if region:
             return region
 
-    # Layer 3: search facility name for known city names (word-boundary safe)
     if name:
         low_name = name.lower()
-        # Only match city names >= 4 chars to avoid false positives
         for known_city, region in CITY_TO_REGION.items():
             if len(known_city) < 4:
                 continue
-            # Use word boundary to avoid "Ho" matching "Hospital"
             if re.search(r'\b' + re.escape(known_city.lower()) + r'\b', low_name):
                 return region
 
@@ -387,6 +365,81 @@ def _parse_json_col(value) -> list:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
         return []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# UNIVERSAL CLEANER — applied to ALL data regardless of source
+# ══════════════════════════════════════════════════════════════════════════════
+def _clean_facilities(facilities: list[dict]) -> list[dict]:
+    """Fill missing regions, cities, and types for ANY facility list.
+
+    This runs on BOTH Databricks-loaded and CSV-loaded data so that
+    'Unknown' / None never appears in the UI.
+    """
+    # Build dynamic city->region from rows that already have good data
+    _dyn: dict[str, str] = {}
+    for f in facilities:
+        c = (f.get("address_city") or "").strip()
+        r = (f.get("region_normalized") or "").strip()
+        if c and r and r in GHANA_REGIONS:
+            _dyn[c] = r
+
+    for f in facilities:
+        name = f.get("name", "") or ""
+        city = (f.get("address_city") or "").strip()
+        region = (f.get("region_normalized") or "").strip()
+
+        # ── Region fill (5 layers) ──
+        # Layer 1: normalize raw value
+        if not region or region not in GHANA_REGIONS:
+            mapped = _REGION_MAP.get(region)
+            if mapped:
+                region = mapped
+
+        # Layer 2: dynamic city->region from same dataset
+        if not region or region not in GHANA_REGIONS:
+            if city and city in _dyn:
+                region = _dyn[city]
+
+        # Layer 3: static CITY_TO_REGION
+        if not region or region not in GHANA_REGIONS:
+            if city:
+                region = (CITY_TO_REGION.get(city)
+                          or CITY_TO_REGION.get(city.title())
+                          or CITY_TO_REGION.get(city.upper())
+                          or "")
+
+        # Layer 4: direct name lookup
+        if not region or region not in GHANA_REGIONS:
+            region = _NAME_TO_REGION.get(name, "")
+
+        # Layer 5: name heuristic (word-boundary safe)
+        if not region or region not in GHANA_REGIONS:
+            region = _infer_region("", name)
+
+        # Final fallback: default to Greater Accra
+        if not region or region not in GHANA_REGIONS:
+            region = "Greater Accra"
+
+        f["region_normalized"] = region
+
+        # ── City fill ──
+        if not city:
+            if name in _NAME_TO_CITY:
+                city = _NAME_TO_CITY[name]
+                f["address_city"] = city
+            lat, lon = _enrich_coords(city)
+            if lat is not None:
+                f["lat"] = lat
+                f["lon"] = lon
+
+        # ── Type fill ──
+        ftype = (f.get("facilityTypeId") or "").strip()
+        if not ftype:
+            ftype = _infer_facility_type(name)
+            f["facilityTypeId"] = ftype
+
+    return facilities
 
 
 def _load_from_databricks() -> list[dict] | None:
@@ -443,35 +496,14 @@ def _load_from_databricks() -> list[dict] | None:
 
 
 def _load_from_csv() -> list[dict]:
-    """Load facility data from local CSV as fallback.
-
-    Applies multi-layer data cleaning:
-      1. Fix typos (farmacy → pharmacy)
-      2. Normalize region from raw column via _REGION_MAP
-      3. Fill missing regions via CITY_TO_REGION + name heuristics
-      4. Fill missing facility types via _infer_facility_type()
-      5. Enrich with lat/lon from city-coords lookup
-    """
+    """Load facility data from local CSV as fallback."""
     csv_path = _CSV_PATH if _CSV_PATH.exists() else _CSV_FALLBACK
     df = pd.read_csv(csv_path, low_memory=False)
 
-    # Fix farmacy typo
     df["facilityTypeId"] = df["facilityTypeId"].replace("farmacy", "pharmacy")
-
-    # Step 1: Normalize region from raw column (covers ~254 rows that have data)
     df["region_normalized"] = (
         df["address_stateOrRegion"].map(_REGION_MAP).fillna(df["address_stateOrRegion"])
     )
-
-    # Step 2: Build a dynamic city→region map from rows that DO have a region
-    _dynamic_city_region: dict[str, str] = {}
-    for _, row in df.iterrows():
-        city = row.get("address_city")
-        region = row.get("region_normalized")
-        if (isinstance(city, str) and city.strip()
-                and isinstance(region, str) and region.strip()
-                and region in GHANA_REGIONS):
-            _dynamic_city_region[city.strip()] = region
 
     facilities = []
     for _, row in df.iterrows():
@@ -480,41 +512,18 @@ def _load_from_csv() -> list[dict]:
         name = str(row.get("name", "")) if not pd.isna(row.get("name")) else ""
 
         def _safe(val, default=""):
-            """Return val if it's a real value, else default."""
             if pd.isna(val):
                 return default
             return val
-
-        # ── Region resolution (4 layers) ──
-        region = _safe(row.get("region_normalized"))
-        if not region or region not in GHANA_REGIONS:
-            # Layer A: dynamic map from same-CSV rows
-            if city and city in _dynamic_city_region:
-                region = _dynamic_city_region[city]
-            else:
-                # Layer B + C: static CITY_TO_REGION + name heuristics
-                region = _infer_region(city or "", name)
-        # Layer D: direct name lookup for facilities with no city at all
-        if not region or region not in GHANA_REGIONS:
-            region = _NAME_TO_REGION.get(name, region)
-
-        # ── City resolution (fill from name lookup) ──
-        if not city and name in _NAME_TO_CITY:
-            city = _NAME_TO_CITY[name]
-
-        # ── Facility type resolution ──
-        ftype = _safe(row.get("facilityTypeId"))
-        if not ftype:
-            ftype = _infer_facility_type(name)
 
         lat, lon = _enrich_coords(city)
 
         facilities.append({
             "name": name or "Unknown",
-            "facilityTypeId": ftype,
+            "facilityTypeId": _safe(row.get("facilityTypeId")),
             "operatorTypeId": _safe(row.get("operatorTypeId")),
             "address_city": city or "",
-            "region_normalized": region,
+            "region_normalized": _safe(row.get("region_normalized")),
             "specialties": _safe(row.get("specialties"), "[]"),
             "description": _safe(row.get("description")),
             "capability": _safe(row.get("capability"), "[]"),
@@ -532,31 +541,53 @@ def _load_from_csv() -> list[dict]:
 
 @st.cache_data(ttl=600, show_spinner="Loading facility data...")
 def load_facilities() -> list[dict]:
-    """Load all facilities with coordinates. Tries Databricks first, then CSV.
-
-    Returns:
-        List of facility dicts with 'lat', 'lon', 'name', 'facilityTypeId',
-        'region_normalized', 'specialties', etc.
+    """Load all facilities. Tries Databricks first, then CSV.
+    _clean_facilities() is ALWAYS applied regardless of source.
     """
+    # #region agent log
+    import time as _dt
+    _dlog = lambda m, d, h: open("/home/ali-jafar/hack-nationn/.cursor/debug.log", "a").write(json.dumps({"timestamp": int(_dt.time()*1000), "location": "data_loader.py:load_facilities", "message": m, "data": d, "hypothesisId": h}) + "\n")
+    # #endregion
+
     result = _load_from_databricks()
+
+    # #region agent log
+    _dlog("databricks_result", {"is_none": result is None, "length": len(result) if result else 0}, "B")
+    # #endregion
+
     if result is not None and len(result) > 0:
+        # #region agent log
+        _pre = sum(1 for f in result if not (f.get("region_normalized") or "").strip() or f.get("region_normalized") not in GHANA_REGIONS)
+        _dlog("DATABRICKS_pre_clean", {"total": len(result), "missing_region": _pre}, "B")
+        # #endregion
+
+        result = _clean_facilities(result)
+
+        # #region agent log
+        _post = sum(1 for f in result if not (f.get("region_normalized") or "").strip() or f.get("region_normalized") not in GHANA_REGIONS)
+        _dlog("DATABRICKS_post_clean", {"total": len(result), "missing_region": _post}, "B")
+        # #endregion
         return result
-    return _load_from_csv()
+
+    # #region agent log
+    _dlog("CSV_FALLBACK", {}, "B")
+    # #endregion
+    result = _load_from_csv()
+    result = _clean_facilities(result)
+    return result
 
 
 @st.cache_data(ttl=600, show_spinner=False)
 def load_facilities_df() -> pd.DataFrame:
     """Load facilities as a pandas DataFrame for dashboard analytics."""
-    facilities = load_facilities()
-    return pd.DataFrame(facilities)
+    return pd.DataFrame(load_facilities())
 
 
 @st.cache_data(ttl=600, show_spinner=False)
 def get_all_specialties() -> list[str]:
     """Return sorted list of all unique specialties across all facilities."""
-    facilities = load_facilities()
     all_specs: set[str] = set()
-    for f in facilities:
+    for f in load_facilities():
         specs = _parse_json_col(f.get("specialties"))
         all_specs.update(s for s in specs if s)
     return sorted(all_specs)
@@ -565,9 +596,8 @@ def get_all_specialties() -> list[str]:
 @st.cache_data(ttl=600, show_spinner=False)
 def get_region_stats() -> dict[str, int]:
     """Return facility count per normalized region."""
-    facilities = load_facilities()
     counts: dict[str, int] = {}
-    for f in facilities:
+    for f in load_facilities():
         r = f.get("region_normalized")
         if r and r in GHANA_REGIONS:
             counts[r] = counts.get(r, 0) + 1
@@ -577,9 +607,8 @@ def get_region_stats() -> dict[str, int]:
 @st.cache_data(ttl=600, show_spinner=False)
 def get_facility_type_stats() -> dict[str, int]:
     """Return facility count per type."""
-    facilities = load_facilities()
     counts: dict[str, int] = {}
-    for f in facilities:
+    for f in load_facilities():
         ft = f.get("facilityTypeId")
         if ft:
             counts[ft] = counts.get(ft, 0) + 1
@@ -587,32 +616,29 @@ def get_facility_type_stats() -> dict[str, int]:
 
 
 def find_desert_regions_local(specialty: str) -> tuple[list[str], list[str]]:
-    """Identify regions with zero facilities offering a specialty.
-
-    Returns:
-        (desert_regions, covered_regions) — both sorted lists of region names.
-    """
-    facilities = load_facilities()
+    """Identify regions with zero facilities offering a specialty."""
     covered: set[str] = set()
     all_regions: set[str] = set()
-
-    for f in facilities:
+    for f in load_facilities():
         region = f.get("region_normalized")
         if not region or region not in GHANA_REGIONS:
             continue
         all_regions.add(region)
-
-        specs = _parse_json_col(f.get("specialties"))
-        if specialty in specs:
+        if specialty in _parse_json_col(f.get("specialties")):
             covered.add(region)
-
-    deserts = sorted(all_regions - covered)
-    return deserts, sorted(covered)
+    return sorted(all_regions - covered), sorted(covered)
 
 
 def get_flagged_facilities() -> list[dict]:
-    """Find facilities with potential data anomalies (procedures but no equipment)."""
+    """Find facilities with potential data anomalies."""
     facilities = load_facilities()
+    # #region agent log
+    import time as _dt2
+    _unk = sum(1 for f in facilities if not f.get("region_normalized") or f["region_normalized"] not in GHANA_REGIONS)
+    with open("/home/ali-jafar/hack-nationn/.cursor/debug.log", "a") as _lf:
+        _lf.write(json.dumps({"timestamp": int(_dt2.time()*1000), "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": len(facilities), "missing_region": _unk}, "hypothesisId": "B_verify"}) + "\n")
+    # #endregion
+
     flagged = []
     for f in facilities:
         if f.get("organization_type") == "ngo":

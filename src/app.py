@@ -483,9 +483,14 @@ with tab_planner:
                     hole=0.45,
                     color_discrete_sequence=["#e53e3e", "#38a169", "#ecc94b", "#805ad5", "#a0aec0"],
                 )
+                fig2.update_traces(
+                    textposition="inside",
+                    textinfo="percent+label",
+                )
                 fig2.update_layout(
                     height=250, margin=dict(l=0, r=0, t=5, b=5),
                     paper_bgcolor="rgba(0,0,0,0)",
+                    uniformtext_minsize=10, uniformtext_mode="hide",
                     legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
                 )
                 st.plotly_chart(fig2)
