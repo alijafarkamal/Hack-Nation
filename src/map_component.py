@@ -17,15 +17,15 @@ from folium.plugins import MarkerCluster
 GHANA_CENTER = [7.9465, -1.0232]
 GHANA_ZOOM = 7
 
-# Marker colors by facility type
-# Red = hospitals (critical care), Green = clinics (primary/community),
-# Orange = pharmacies, Purple = dentists, Blue = doctors
+# All markers use the same dark-blue color so they don't clash with
+# MarkerCluster colors (green = many facilities, red = few).
+# Facility types are distinguished by icon shape instead.
 FACILITY_COLORS = {
-    "hospital": "red",
-    "clinic": "green",
-    "pharmacy": "orange",
-    "dentist": "purple",
-    "doctor": "blue",
+    "hospital": "darkblue",
+    "clinic": "darkblue",
+    "pharmacy": "darkblue",
+    "dentist": "darkblue",
+    "doctor": "darkblue",
 }
 
 # Friendly labels

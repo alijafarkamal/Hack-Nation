@@ -500,7 +500,16 @@ with tab_planner:
                 "name": "Facility", "type": "Type", "city": "City",
                 "region": "Region", "flags": "Issue",
             })[["Facility", "Type", "Region", "Issue"]]
-            st.dataframe(flagged_df, height=250, hide_index=True)
+            flagged_df.index = range(1, len(flagged_df) + 1)
+            flagged_df.index.name = "#"
+            st.dataframe(flagged_df, height=250)
+            st.download_button(
+                "Download flagged facilities (CSV)",
+                flagged_df.to_csv().encode("utf-8"),
+                "flagged_facilities.csv",
+                "text/csv",
+                key="dl_flagged",
+            )
         else:
             st.success("No flags detected.")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -578,14 +587,14 @@ with tab_map:
     )
     st_folium(m, height=780)
 
-    # Legend bar
+    # Legend bar — cluster colors + facility icons
     st.markdown("""
     <div class="legend-bar">
-        <div class="legend-item"><span class="legend-dot" style="background:#e53e3e;"></span> Hospital</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#38a169;"></span> Clinic</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#ed8936;"></span> Pharmacy</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#805ad5;"></span> Dentist</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#3182ce;"></span> Doctor</div>
+        <span style="font-weight:600; margin-right:0.5rem;">Cluster bubbles:</span>
+        <div class="legend-item"><span class="legend-dot" style="background:#e53e3e;"></span> Few facilities</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#f1c40f;"></span> Medium</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#38a169;"></span> Many facilities</div>
+        <span style="border-left:1px solid rgba(160,174,192,0.4); height:16px; margin:0 0.5rem;"></span>
         <div class="legend-item"><span class="legend-dot" style="background:#e53e3e; opacity:0.35;"></span> Medical Desert</div>
     </div>
     """, unsafe_allow_html=True)
@@ -607,6 +616,16 @@ with tab_map:
                     "Region": fac.get("region_normalized", "—"),
                     "Specialties": len(sl),
                 })
-            st.dataframe(pd.DataFrame(tdata), height=350, hide_index=True)
+            list_df = pd.DataFrame(tdata)
+            list_df.index = range(1, len(list_df) + 1)
+            list_df.index.name = "#"
+            st.dataframe(list_df, height=350)
+            st.download_button(
+                "Download facility list (CSV)",
+                list_df.to_csv().encode("utf-8"),
+                "facility_list.csv",
+                "text/csv",
+                key="dl_facility_list",
+            )
         else:
             st.info("No facilities match filters.")
