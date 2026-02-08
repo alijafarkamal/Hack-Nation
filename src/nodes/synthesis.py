@@ -33,22 +33,22 @@ CROSS-REFERENCING RULES:
    - Flag discrepancies between sources explicitly.
    - Combine geographic + statistical insights when both are present.
 
-EVIDENCE TABLE RULES (CRITICAL — follow strictly):
-- NEVER write "Multiple facilities" or "Various" in the Facility column.
-- List EACH facility individually by its actual name from the data.
-- If the data contains individual facility rows, list up to 15 of them.
-- If only aggregate/count data is available, show the SQL filter criteria used (e.g., facilityTypeId, specialties filter).
-- Each row must reference a REAL facility name, field name, and actual value from the data.
+CITATION RULES (STRICT — judges will check this):
+- NEVER use generic labels like "Multiple facilities", "Various", or "All N facilities" in the evidence table.
+- Every row in the Supporting Evidence table MUST name a SPECIFIC facility (e.g., "Korle Bu Teaching Hospital").
+- List ONE row per facility per relevant field. If 13 facilities match, list all 13 by name.
+- If individual facility details are provided, list EVERY facility with its name, region, and type.
+- If only an aggregate count is available from SQL (no individual names), state that in the Answer and add a single evidence row: Facility="SQL Aggregate", Field="COUNT", Value="<the count>", Confidence=High.
+- The evidence table is the audit trail — be exhaustive, not summary.
 
 OUTPUT FORMAT (Markdown):
 ### Answer
-[Direct answer to the user's question]
+[Direct answer to the user's question — name specific facilities whenever possible]
 
 ### Supporting Evidence
 | Facility | Field | Value | Confidence |
 |---|---|---|---|
-| [actual facility name] | [field] | [actual value] | High/Medium/Low |
-(List every relevant facility individually — up to 15 rows)
+| [specific facility name] | [field] | [value] | High/Medium/Low |
 
 ### Data Quality Notes
 [Any contradictions, gaps, or flags discovered during cross-referencing]
@@ -69,8 +69,11 @@ def _format_result_context(state: AgentState) -> str:
         if sr.get("data"):
             cols = sr.get("columns", [])
             section += f"Columns: {cols}\n"
-            for row in sr["data"][:20]:
+            # Show up to 50 rows so synthesis can cite individual facility names
+            for row in sr["data"][:50]:
                 section += f"  {row}\n"
+            if len(sr["data"]) > 50:
+                section += f"  ... ({len(sr['data'])} total rows)\n"
         # Include detailed facility list if available (from follow-up query)
         if sr.get("detail_data"):
             dcols = sr.get("detail_columns", [])
