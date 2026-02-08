@@ -28,13 +28,16 @@ def query_llm(
     Returns:
         The LLM's text response.
     """
-    response = db_client.serving_endpoints.query(
-        name=LLM_ENDPOINT,
-        messages=[
-            ChatMessage(role=ChatMessageRole.SYSTEM, content=system_prompt),
-            ChatMessage(role=ChatMessageRole.USER, content=user_message),
-        ],
-        max_tokens=max_tokens,
-        temperature=temperature,
-    )
-    return response.choices[0].message.content
+    try:
+        response = db_client.serving_endpoints.query(
+            name=LLM_ENDPOINT,
+            messages=[
+                ChatMessage(role=ChatMessageRole.SYSTEM, content=system_prompt),
+                ChatMessage(role=ChatMessageRole.USER, content=user_message),
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"[LLM error: {e}]"

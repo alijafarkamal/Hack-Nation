@@ -37,20 +37,23 @@ def query_vector_search(
     Returns:
         List of dicts, each representing a matching facility record.
     """
-    index = vs_client.get_index(endpoint_name=VS_ENDPOINT, index_name=VS_INDEX)
+    try:
+        index = vs_client.get_index(endpoint_name=VS_ENDPOINT, index_name=VS_INDEX)
 
-    kwargs = dict(
-        query_text=query_text,
-        columns=_COLUMNS,
-        num_results=num_results,
-    )
-    if filters:
-        kwargs["filters"] = filters
+        kwargs = dict(
+            query_text=query_text,
+            columns=_COLUMNS,
+            num_results=num_results,
+        )
+        if filters:
+            kwargs["filters"] = filters
 
-    raw = index.similarity_search(**kwargs)
+        raw = index.similarity_search(**kwargs)
 
-    # Convert from data_array to list of dicts
-    data_array = raw.get("result", {}).get("data_array", [])
-    col_names = [c["name"] for c in raw.get("manifest", {}).get("columns", [])]
+        # Convert from data_array to list of dicts
+        data_array = raw.get("result", {}).get("data_array", [])
+        col_names = [c["name"] for c in raw.get("manifest", {}).get("columns", [])]
 
-    return [dict(zip(col_names, row)) for row in data_array]
+        return [dict(zip(col_names, row)) for row in data_array]
+    except Exception as e:
+        return [{"error": str(e)}]

@@ -29,10 +29,14 @@ def query_genie(question: str, timeout_seconds: int = 60) -> dict:
           - 'columns': Column names for the data
     """
     # Start conversation
-    wait = db_client.genie.start_conversation(
-        space_id=GENIE_SPACE_ID,
-        content=question,
-    )
+    try:
+        wait = db_client.genie.start_conversation(
+            space_id=GENIE_SPACE_ID,
+            content=question,
+        )
+    except Exception as e:
+        return {"sql": None, "description": f"Genie connection error: {e}", "text": str(e), "data": [], "columns": []}
+
     conv_id = wait.conversation_id
     msg_id = wait.message_id
 
