@@ -10,6 +10,7 @@ Three tabs:
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -53,6 +54,23 @@ except Exception as _import_err:
             f"**Agent unavailable:** {_AGENT_ERROR}\n\n"
             "The Map and Mission Planner tabs still work with local data."
         )
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _humanize(camel: str) -> str:
+    """Convert camelCase specialty names to readable form.
+
+    e.g. 'gynecologyAndObstetrics' -> 'Gynecology And Obstetrics'
+    """
+    spaced = re.sub(r"([a-z])([A-Z])", r"\1 \2", camel)
+    return spaced[0].upper() + spaced[1:] if spaced else camel
+
+
+def _spec_display_map(specs: list[str]) -> dict[str, str]:
+    """Build {display_label: raw_value} mapping for specialty dropdowns."""
+    return {_humanize(s): s for s in specs}
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -417,8 +435,10 @@ with tab_planner:
                         "emergencyMedicine", "gynecologyAndObstetrics", "orthopedicSurgery",
                         "internalMedicine", "radiology", "nephrology"]
             ordered = [s for s in priority if s in all_specs] + [s for s in all_specs if s not in priority]
+            spec_labels = [_humanize(s) for s in ordered]
 
-            sel_spec = st.selectbox("Specialty", ordered, key="planner_spec")
+            sel_label = st.selectbox("Specialty", spec_labels, key="planner_spec")
+            sel_spec = ordered[spec_labels.index(sel_label)] if sel_label else None
 
             if sel_spec:
                 deserts, covered = find_desert_regions_local(sel_spec)
@@ -543,13 +563,17 @@ with tab_map:
         spec_options = get_all_specialties()
     except Exception:
         spec_options = []
+    _spec_map = _spec_display_map(spec_options)
+    _spec_labels = list(_spec_map.keys())
 
     # Compact filter bar
     f1, f2, f3, f4 = st.columns(4)
     sel_region = f1.selectbox("Region", ["All"] + all_regions_in_data, key="map_region")
     sel_type = f2.selectbox("Type", ["All"] + all_types_in_data, key="map_type")
-    sel_spec_f = f3.selectbox("Specialty", ["All"] + spec_options, key="map_spec_f")
-    desert_spec = f4.selectbox("Desert overlay", ["None"] + spec_options, key="map_desert")
+    _sel_spec_label = f3.selectbox("Specialty", ["All"] + _spec_labels, key="map_spec_f")
+    sel_spec_f = _spec_map.get(_sel_spec_label, _sel_spec_label)  # map display->raw
+    _sel_desert_label = f4.selectbox("Desert overlay", ["None"] + _spec_labels, key="map_desert")
+    desert_spec = _spec_map.get(_sel_desert_label, _sel_desert_label)  # map display->raw
 
     # Apply filters
     filtered = all_facilities
