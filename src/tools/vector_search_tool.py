@@ -1,19 +1,32 @@
 """Databricks Mosaic AI Vector Search SDK wrapper — RAG.
 
-Performs semantic search over the procedure/equipment/capability columns
-of the Ghana facilities Delta table using auto-generated embeddings.
+Performs semantic search over the description column of the Ghana
+facilities Delta table using auto-generated embeddings.
 
 Ref: https://docs.databricks.com/en/generative-ai/vector-search
 """
 
-from src.config import db_client, VS_INDEX
+from src.config import VS_ENDPOINT, VS_INDEX, vs_client
+
+# Column list to sync back from the index
+_COLUMNS = [
+    "name",
+    "facilityTypeId",
+    "address_city",
+    "region_normalized",
+    "specialties",
+    "description",
+    "capability",
+    "procedure",
+    "equipment",
+]
 
 
 def query_vector_search(
     query_text: str,
     num_results: int = 10,
     filters: dict | None = None,
-) -> list:
+) -> list[dict]:
     """Semantic search over facility free-form text columns.
 
     Args:
@@ -22,21 +35,22 @@ def query_vector_search(
         filters: Optional column filters (e.g., {"facilityTypeId": "hospital"}).
 
     Returns:
-        List of matching facility records (each is a list of column values).
+        List of dicts, each representing a matching facility record.
     """
-    results = db_client.vector_search_indexes.query_index(
-        index_name=VS_INDEX,
-        columns=[
-            "name",
-            "procedure",
-            "equipment",
-            "capability",
-            "address_city",
-            "facilityTypeId",
-            "specialties",
-        ],
+    index = vs_client.get_index(endpoint_name=VS_ENDPOINT, index_name=VS_INDEX)
+
+    kwargs = dict(
         query_text=query_text,
+        columns=_COLUMNS,
         num_results=num_results,
-        filters=filters,
     )
-    return results.data_array
+    if filters:
+        kwargs["filters"] = filters
+
+    raw = index.similarity_search(**kwargs)
+
+    # Convert from data_array to list of dicts
+    data_array = raw.get("result", {}).get("data_array", [])
+    col_names = [c["name"] for c in raw.get("manifest", {}).get("columns", [])]
+
+    return [dict(zip(col_names, row)) for row in data_array]

@@ -1,7 +1,7 @@
 """SQL Agent node — sends the user question to Databricks Genie for Text-to-SQL.
 
 Genie generates SQL, executes it against the Delta table in Unity Catalog,
-and returns structured results.
+and returns structured results + natural language answer.
 
 Ref: https://docs.databricks.com/en/genie/
 """
@@ -16,5 +16,5 @@ def sql_agent_node(state: AgentState) -> dict:
     return {
         "sql_result": result,
         "citations": state["citations"]
-        + [{"source": "genie", "sql": result.get("sql")}],
+        + [{"source": "genie", "sql": result.get("sql"), "description": result.get("description")}],
     }

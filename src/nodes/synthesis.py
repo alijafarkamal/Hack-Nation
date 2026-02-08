@@ -7,6 +7,8 @@ and build a complete citation-backed answer.
 This implements 'Intelligent Synthesis' (Technical Accuracy = 35% of scoring).
 """
 
+import json
+
 from src.state import AgentState
 from src.tools.model_serving_tool import query_llm
 
@@ -36,23 +38,80 @@ OUTPUT FORMAT (Markdown):
 """
 
 
-def synthesis_node(state: AgentState) -> dict:
-    """Synthesis node — cross-references structured fields against unstructured
-    free-form text extractions. Produces citation-backed answers with data
-    quality flags."""
-    # Gather all results from whichever agent(s) ran
-    raw_parts = []
-    if state.get("sql_result"):
-        raw_parts.append(f"SQL/Genie result:\n{state['sql_result']}")
-    if state.get("search_result"):
-        raw_parts.append(f"Vector Search result:\n{state['search_result']}")
-    if state.get("extraction_result"):
-        raw_parts.append(f"IDP Extraction result:\n{state['extraction_result']}")
-    if state.get("anomaly_result"):
-        raw_parts.append(f"Anomaly detection result:\n{state['anomaly_result']}")
-    if state.get("geo_result"):
-        raw_parts.append(f"Geospatial result:\n{state['geo_result']}")
+def _format_result_context(state: AgentState) -> str:
+    """Build a context string from all available agent results."""
+    parts = []
 
-    combined = "\n---\n".join(raw_parts) if raw_parts else "No results found."
-    answer = query_llm(SYNTHESIS_PROMPT, combined)
+    if state.get("sql_result"):
+        sr = state["sql_result"]
+        section = f"**SQL/Genie Result:**\n"
+        if sr.get("text"):
+            section += f"Answer: {sr['text']}\n"
+        if sr.get("sql"):
+            section += f"SQL: {sr['sql']}\n"
+        if sr.get("data"):
+            cols = sr.get("columns", [])
+            section += f"Columns: {cols}\n"
+            for row in sr["data"][:20]:
+                section += f"  {row}\n"
+        parts.append(section)
+
+    if state.get("search_result"):
+        section = "**Vector Search Results:**\n"
+        for i, r in enumerate(state["search_result"][:10]):
+            if isinstance(r, dict):
+                section += (
+                    f"{i+1}. {r.get('name', '?')} ({r.get('facilityTypeId', '?')}, "
+                    f"{r.get('address_city', '?')})\n"
+                    f"   description: {str(r.get('description', ''))[:200]}\n"
+                    f"   specialties: {r.get('specialties', '[]')}\n"
+                    f"   procedures: {str(r.get('procedure', ''))[:150]}\n"
+                    f"   equipment: {str(r.get('equipment', ''))[:150]}\n"
+                    f"   capability: {str(r.get('capability', ''))[:150]}\n"
+                )
+            else:
+                section += f"{i+1}. {r}\n"
+        parts.append(section)
+
+    if state.get("extraction_result"):
+        er = state["extraction_result"]
+        section = "**IDP Extraction Results:**\n"
+        for i, extraction in enumerate(er.get("extractions", [])[:5]):
+            section += f"{i+1}. {extraction[:500]}\n"
+        parts.append(section)
+
+    if state.get("anomaly_result"):
+        section = f"**Anomaly Detection Results:**\n{state['anomaly_result'][:1000]}\n"
+        parts.append(section)
+
+    if state.get("geo_result"):
+        gr = state["geo_result"]
+        section = "**Geospatial Results:**\n"
+        section += f"Message: {gr.get('message', 'N/A')}\n"
+        if gr.get("desert_regions"):
+            section += f"Desert regions: {gr['desert_regions']}\n"
+        if gr.get("covered_regions"):
+            section += f"Covered regions: {gr['covered_regions']}\n"
+        if gr.get("facilities"):
+            section += "Nearby facilities:\n"
+            for f in gr["facilities"][:10]:
+                section += f"  - {f.get('name')} ({f.get('distance_km')}km)\n"
+        if gr.get("region_counts"):
+            section += "Region counts:\n"
+            for region, cnt in list(gr["region_counts"].items())[:15]:
+                section += f"  - {region}: {cnt}\n"
+        parts.append(section)
+
+    return "\n---\n".join(parts) if parts else "No results found from any agent."
+
+
+def synthesis_node(state: AgentState) -> dict:
+    """Synthesis node — cross-references all agent outputs and produces
+    a citation-backed answer with data quality flags."""
+    context = _format_result_context(state)
+    user_query = state["query"]
+
+    prompt_input = f"User question: {user_query}\n\nAgent results:\n{context}"
+    answer = query_llm(SYNTHESIS_PROMPT, prompt_input, max_tokens=2048)
+
     return {"final_answer": answer}
