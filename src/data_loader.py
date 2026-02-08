@@ -544,37 +544,10 @@ def load_facilities() -> list[dict]:
     """Load all facilities. Tries Databricks first, then CSV.
     _clean_facilities() is ALWAYS applied regardless of source.
     """
-    # #region agent log
-    import time as _dt
-    _dlog = lambda m, d, h: open("/home/ali-jafar/hack-nationn/.cursor/debug.log", "a").write(json.dumps({"timestamp": int(_dt.time()*1000), "location": "data_loader.py:load_facilities", "message": m, "data": d, "hypothesisId": h}) + "\n")
-    # #endregion
-
     result = _load_from_databricks()
-
-    # #region agent log
-    _dlog("databricks_result", {"is_none": result is None, "length": len(result) if result else 0}, "B")
-    # #endregion
-
     if result is not None and len(result) > 0:
-        # #region agent log
-        _pre = sum(1 for f in result if not (f.get("region_normalized") or "").strip() or f.get("region_normalized") not in GHANA_REGIONS)
-        _dlog("DATABRICKS_pre_clean", {"total": len(result), "missing_region": _pre}, "B")
-        # #endregion
-
-        result = _clean_facilities(result)
-
-        # #region agent log
-        _post = sum(1 for f in result if not (f.get("region_normalized") or "").strip() or f.get("region_normalized") not in GHANA_REGIONS)
-        _dlog("DATABRICKS_post_clean", {"total": len(result), "missing_region": _post}, "B")
-        # #endregion
-        return result
-
-    # #region agent log
-    _dlog("CSV_FALLBACK", {}, "B")
-    # #endregion
-    result = _load_from_csv()
-    result = _clean_facilities(result)
-    return result
+        return _clean_facilities(result)
+    return _clean_facilities(_load_from_csv())
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -632,13 +605,6 @@ def find_desert_regions_local(specialty: str) -> tuple[list[str], list[str]]:
 def get_flagged_facilities() -> list[dict]:
     """Find facilities with potential data anomalies."""
     facilities = load_facilities()
-    # #region agent log
-    import time as _dt2
-    _unk = sum(1 for f in facilities if not f.get("region_normalized") or f["region_normalized"] not in GHANA_REGIONS)
-    with open("/home/ali-jafar/hack-nationn/.cursor/debug.log", "a") as _lf:
-        _lf.write(json.dumps({"timestamp": int(_dt2.time()*1000), "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": len(facilities), "missing_region": _unk}, "hypothesisId": "B_verify"}) + "\n")
-    # #endregion
-
     flagged = []
     for f in facilities:
         if f.get("organization_type") == "ngo":
