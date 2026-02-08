@@ -174,31 +174,138 @@ CITY_TO_REGION: dict[str, str] = {
     "Sefwi": "Western North",
 }
 
-# ── Direct name-to-region for facilities with no city at all ──────────────────
-# These 22 facilities have zero city data.  Regions looked up individually.
+# ── Direct name-to-region + city for all facilities with no city in CSV ───────
+# Looked up via Gemini API + manual verification for 64 facilities.
 _NAME_TO_REGION: dict[str, str] = {
-    "Adansi Comunity Clinic": "Ashanti",            # Adansi district, Ashanti
-    "Amang Health Centre": "Western North",          # Amang, Sefwi area
-    "Anhwiaso Health Centre": "Western North",       # Anhwiaso, Sefwi Wiawso
-    "Beaver Dental": "Greater Accra",                # Accra-based chain
-    "Beaver Medical": "Greater Accra",               # Accra-based chain
-    "Cathedral Herbal & Fertility Clinic": "Greater Accra",  # Accra
-    "Digestive Diseases Aid": "Greater Accra",       # Accra
-    "Elubo Health Center": "Western",                # Elubo, border town
-    "Emofra Africa": "Greater Accra",                # Accra NGO
-    "Evergreen Opticals - Burma Camp, Recce Junction": "Greater Accra",  # Burma Camp, Accra
-    "Foundation Human Nature": "Greater Accra",      # Accra NGO
-    "Gloria Memorial Clinic": "Greater Accra",       # Accra
-    "Imam Ali Spiritual And Herbal Center": "Greater Accra",  # Accra
-    "Juabo Community Clinic": "Eastern",             # Juabo, Eastern region
-    "Kate Afram Clinic": "Eastern",                  # Afram Plains area
-    "Nkwanta Clinic": "Oti",                         # Nkwanta, Oti region
-    "Raphal Medical Centre": "Greater Accra",        # Accra
-    "Revoobit MirraCell+ Gh.": "Greater Accra",     # Accra
-    "Salifu Memorial Clinic": "Northern",            # Northern Ghana
-    "Shekinah Herbal TV GH": "Greater Accra",        # Accra
-    "SVG Africa": "Greater Accra",                   # Accra NGO
-    "Wassa Mampong Health Center": "Western",        # Wassa Mampong, Western
+    "Accra Specialist Eye Hospital": "Greater Accra",
+    "ACHIASE HEALTH CENTRE": "Eastern",
+    "Adansi Comunity Clinic": "Ashanti",
+    "Ama Dansowaa Maternity Home": "Ashanti",
+    "Amang Health Centre": "Western North",
+    "Anane Aya Maternity Home": "Ashanti",
+    "Anhwiaso Health Centre": "Western North",
+    "Beaver Dental": "Greater Accra",
+    "Beaver Medical": "Greater Accra",
+    "Bodi Anglican Clinic - Ghana": "Western North",
+    "CAMFAP Maternity Clinic": "Ashanti",
+    "Cathedral Herbal & Fertility Clinic": "Greater Accra",
+    "Catholic Hospital, Anfoega": "Volta",
+    "Cheerful Hearts Foundation": "Greater Accra",
+    "Diabetes Youth Care": "Greater Accra",
+    "Digestive Diseases Aid": "Greater Accra",
+    "Dormaa Presbyterian Hospital": "Bono",
+    "Elubo Health Center": "Western",
+    "Emofra Africa": "Greater Accra",
+    "Evergreen Opticals - Burma Camp, Recce Junction": "Greater Accra",
+    "Foundation Human Nature": "Greater Accra",
+    "Ghana Make A Difference": "Greater Accra",
+    "Ghana Police Hospital": "Greater Accra",
+    "Gloria Memorial Clinic": "Greater Accra",
+    "Imam Ali Spiritual And Herbal Center": "Greater Accra",
+    "Imperial Nursing And Home-care Services": "Greater Accra",
+    "Juabo Community Clinic": "Eastern",
+    "Kate Afram Clinic": "Eastern",
+    "KLIMOVIC MEMORIAL HOSPITAL": "Greater Accra",
+    "Kropo Charity Hospital": "Ashanti",
+    "LawFam Nutritional Clinic - 47 Fertilizer Road, Teshie, Ghana": "Greater Accra",
+    "Lizzie's Maternity Home": "Greater Accra",
+    "Manhyia District Hospital": "Ashanti",
+    "Medicas Hospital, Mampong Akwapim": "Eastern",
+    "Methodist Clinic, Amakom-lake Bosomtwe": "Ashanti",
+    "Methodist Faith Healing Hospital": "Ashanti",
+    "Newstar Ear Centre Ghana": "Greater Accra",
+    "Nkwanta Clinic": "Oti",
+    "Offinsoman Pharmacy": "Ashanti",
+    "Our Lady Of Fatima Clinic - Ghana": "Greater Accra",
+    "Our Ladys Clinic": "Greater Accra",
+    "Pantang Hospital": "Greater Accra",
+    "Police Clinic, Maxwell Road": "Greater Accra",
+    "Raphal Medical Centre": "Greater Accra",
+    "Rescue Clinic": "Greater Accra",
+    "Revoobit MirraCell+ Gh.": "Greater Accra",
+    "Sacred Heart Hospital": "Greater Accra",
+    "Salem Maternity Home": "Greater Accra",
+    "Salifu Memorial Clinic": "Northern",
+    "Shekinah Herbal TV GH": "Greater Accra",
+    "Sogakope District Hospital": "Volta",
+    "ST. FF Specialist Hospital": "Greater Accra",
+    "St. Martin's Catholic Hospi": "Ashanti",
+    "St. Mary Theresa Catholic Hospital": "Oti",
+    "SVG Africa": "Greater Accra",
+    "Tepa District Hospital": "Ashanti",
+    "The Community Hospital Ashongman": "Greater Accra",
+    "The Hunger Project-Ghana": "Greater Accra",
+    "The Salvation Army Health Services": "Greater Accra",
+    "VALCO HOSPITAL": "Greater Accra",
+    "Virtue Medical Centre": "Upper West",
+    "Wassa Mampong Health Center": "Western",
+    "Wellembelle Health Centre": "Upper West",
+}
+
+_NAME_TO_CITY: dict[str, str] = {
+    "Accra Specialist Eye Hospital": "Accra",
+    "ACHIASE HEALTH CENTRE": "Achiase",
+    "Adansi Comunity Clinic": "Adansi",
+    "Ama Dansowaa Maternity Home": "Kumasi",
+    "Amang Health Centre": "Amang",
+    "Anane Aya Maternity Home": "Kumasi",
+    "Anhwiaso Health Centre": "Anhwiaso",
+    "Beaver Dental": "Accra",
+    "Beaver Medical": "Accra",
+    "Bodi Anglican Clinic - Ghana": "Bodi",
+    "CAMFAP Maternity Clinic": "Kumasi",
+    "Cathedral Herbal & Fertility Clinic": "Accra",
+    "Catholic Hospital, Anfoega": "Anfoega",
+    "Cheerful Hearts Foundation": "Accra",
+    "Diabetes Youth Care": "Accra",
+    "Digestive Diseases Aid": "Accra",
+    "Dormaa Presbyterian Hospital": "Dormaa Ahenkro",
+    "Elubo Health Center": "Elubo",
+    "Emofra Africa": "Accra",
+    "Evergreen Opticals - Burma Camp, Recce Junction": "Accra",
+    "Foundation Human Nature": "Accra",
+    "Ghana Make A Difference": "Accra",
+    "Ghana Police Hospital": "Accra",
+    "Gloria Memorial Clinic": "Accra",
+    "Imam Ali Spiritual And Herbal Center": "Accra",
+    "Imperial Nursing And Home-care Services": "Accra",
+    "Juabo Community Clinic": "Juabo",
+    "Kate Afram Clinic": "Donkorkrom",
+    "KLIMOVIC MEMORIAL HOSPITAL": "Accra",
+    "Kropo Charity Hospital": "Kropo",
+    "LawFam Nutritional Clinic - 47 Fertilizer Road, Teshie, Ghana": "Teshie",
+    "Lizzie's Maternity Home": "Accra",
+    "Manhyia District Hospital": "Kumasi",
+    "Medicas Hospital, Mampong Akwapim": "Mampong-Akwapim",
+    "Methodist Clinic, Amakom-lake Bosomtwe": "Kumasi",
+    "Methodist Faith Healing Hospital": "Kumasi",
+    "Newstar Ear Centre Ghana": "Accra",
+    "Nkwanta Clinic": "Nkwanta",
+    "Offinsoman Pharmacy": "Offinso",
+    "Our Lady Of Fatima Clinic - Ghana": "Accra",
+    "Our Ladys Clinic": "Accra",
+    "Pantang Hospital": "Accra",
+    "Police Clinic, Maxwell Road": "Accra",
+    "Raphal Medical Centre": "Accra",
+    "Rescue Clinic": "Accra",
+    "Revoobit MirraCell+ Gh.": "Accra",
+    "Sacred Heart Hospital": "Accra",
+    "Salem Maternity Home": "Accra",
+    "Salifu Memorial Clinic": "Tamale",
+    "Shekinah Herbal TV GH": "Accra",
+    "Sogakope District Hospital": "Sogakope",
+    "ST. FF Specialist Hospital": "Accra",
+    "St. Martin's Catholic Hospi": "Agroyesum",
+    "St. Mary Theresa Catholic Hospital": "Dodi Papase",
+    "SVG Africa": "Accra",
+    "Tepa District Hospital": "Tepa",
+    "The Community Hospital Ashongman": "Ashongman",
+    "The Hunger Project-Ghana": "Accra",
+    "The Salvation Army Health Services": "Accra",
+    "VALCO HOSPITAL": "Tema",
+    "Virtue Medical Centre": "Wa",
+    "Wassa Mampong Health Center": "Wassa Mampong",
+    "Wellembelle Health Centre": "Wellembelle",
 }
 
 # ── Facility type inference from name ─────────────────────────────────────────
@@ -229,10 +336,13 @@ def _infer_facility_type(name: str) -> str:
 
 def _infer_region(city: str, name: str) -> str:
     """Three-layer region inference:
-    1. Static CITY_TO_REGION lookup (covers ~122 cities)
+    1. Static CITY_TO_REGION lookup (covers ~125 cities)
     2. Case-insensitive / title-case fallback
-    3. Facility name heuristics (city names embedded in facility names)
+    3. Facility name heuristics — word-boundary matching only
+       (avoids false positives like "Ho" matching "Hospital")
     """
+    import re
+
     if city:
         # Layer 1: exact match
         region = CITY_TO_REGION.get(city)
@@ -243,11 +353,15 @@ def _infer_region(city: str, name: str) -> str:
         if region:
             return region
 
-    # Layer 3: search facility name for known city names
+    # Layer 3: search facility name for known city names (word-boundary safe)
     if name:
         low_name = name.lower()
+        # Only match city names >= 4 chars to avoid false positives
         for known_city, region in CITY_TO_REGION.items():
-            if known_city.lower() in low_name:
+            if len(known_city) < 4:
+                continue
+            # Use word boundary to avoid "Ho" matching "Hospital"
+            if re.search(r'\b' + re.escape(known_city.lower()) + r'\b', low_name):
                 return region
 
     return ""
@@ -383,6 +497,10 @@ def _load_from_csv() -> list[dict]:
         # Layer D: direct name lookup for facilities with no city at all
         if not region or region not in GHANA_REGIONS:
             region = _NAME_TO_REGION.get(name, region)
+
+        # ── City resolution (fill from name lookup) ──
+        if not city and name in _NAME_TO_CITY:
+            city = _NAME_TO_CITY[name]
 
         # ── Facility type resolution ──
         ftype = _safe(row.get("facilityTypeId"))
