@@ -165,7 +165,7 @@ def _generate_planning_pdf(
     pdf.set_text_color(150, 150, 150)
     pdf.cell(0, 5, "Ghana Medical Intelligence Agent - Hack Nation", align="C")
 
-    return pdf.output()
+    return bytes(pdf.output())
 
 # ---------------------------------------------------------------------------
 # Page config
