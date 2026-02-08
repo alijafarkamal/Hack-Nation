@@ -1,11 +1,14 @@
 """Supervisor node — normalizes user query, then classifies intent for routing.
 
-Two-step process:
+Three-step process:
 1. **Normalize** — Fix typos, grammar, and ambiguity so downstream agents
    (especially Genie Text-to-SQL) receive clean, well-formed English.
-2. **Classify** — Route the cleaned query to SQL / SEARCH / EXTRACT / ANOMALY / GEO.
+2. **Classify** — Route the cleaned query to one or more of:
+   SQL / SEARCH / EXTRACT / ANOMALY / GEO.
+3. **Fan-out** — Composite queries that span multiple domains are routed to
+   2+ agents in parallel (LangGraph fan-out); synthesis merges all results.
 
-Uses Databricks Model Serving LLM for both steps.
+Uses Databricks Model Serving LLM for both normalize and classify steps.
 """
 
 import mlflow
@@ -39,53 +42,52 @@ Examples:
   "faciliteis with surgery but no equpment" → "Which facilities claim surgery but lack equipment?"
 """
 
-# ── Step 2: Intent classification ────────────────────────────────────────
-ROUTER_PROMPT = """You classify healthcare facility questions into EXACTLY ONE category.
+# ── Step 2: Intent classification (supports 1 or 2 intents) ──────────────
+ROUTER_PROMPT = """You classify healthcare facility questions into one or two categories.
 
-CATEGORY DEFINITIONS (choose the BEST fit):
+CATEGORY DEFINITIONS:
 
-SQL — Use when the question asks for **counts, rankings, comparisons, distributions, lists, or correlations** across the entire dataset.
-Examples:
-- "How many hospitals have cardiology?" → SQL
-- "Which region has the most hospitals?" → SQL
-- "Which procedures depend on very few facilities?" → SQL
-- "Correlations between facility characteristics?" → SQL
-- "Oversupply vs scarcity by complexity?" → SQL
-- "Where is the workforce for ophthalmology practicing?" → SQL
+SQL — **counts, rankings, comparisons, distributions, lists, or correlations** across the dataset.
+  "How many hospitals have cardiology?" → SQL
+  "Which region has the most hospitals?" → SQL
 
-SEARCH — Use when the question asks about a **specific facility by name**, or asks what services/capabilities exist in a **specific area**.
-Examples:
-- "What services does Korle Bu Teaching Hospital offer?" → SEARCH
-- "Are there clinics in Accra that do eye care?" → SEARCH
-- "What equipment does Tamale Teaching Hospital have?" → SEARCH
+SEARCH — a **specific facility by name** or services in a **specific area**.
+  "What services does Korle Bu Teaching Hospital offer?" → SEARCH
+  "Clinics in Accra that do eye care?" → SEARCH
 
-EXTRACT — Use when the question asks to **parse or extract structured facts** from a facility's free-form text (procedure, equipment, capability fields).
-Examples:
-- "What procedures does Tamale Teaching Hospital perform?" → EXTRACT
-- "Parse capabilities for facilities in Ashanti" → EXTRACT
+EXTRACT — **parse or extract structured facts** from free-form text fields.
+  "What procedures does Tamale Teaching Hospital perform?" → EXTRACT
+  "Parse capabilities for facilities in Ashanti" → EXTRACT
 
-ANOMALY — Use ONLY when the question explicitly asks about **data inconsistencies, mismatches, contradictions, unrealistic claims, or quality problems** in the data.
-Examples:
-- "Facilities claiming unrealistic procedures for their size?" → ANOMALY
-- "High procedure breadth with minimal equipment?" → ANOMALY
-- "Things that shouldn't move together?" → ANOMALY
+ANOMALY — **data inconsistencies, mismatches, contradictions, unrealistic claims**.
+  "Facilities claiming unrealistic procedures for their size?" → ANOMALY
+  "High procedure breadth with minimal equipment?" → ANOMALY
 
-GEO — Use when the question involves **distances, locations, geographic coverage, cold spots, medical deserts, or service gaps by region**.
-Examples:
-- "Hospitals within 50km of Tamale?" → GEO
-- "Largest geographic cold spots for cardiology?" → GEO
-- "Gaps where no organizations work despite evident need?" → GEO
+GEO — **distances, locations, geographic coverage, cold spots, medical deserts**.
+  "Hospitals within 50km of Tamale?" → GEO
+  "Largest geographic cold spots for cardiology?" → GEO
 
-Respond with ONLY the category name (SQL, SEARCH, EXTRACT, ANOMALY, or GEO). No explanation."""
+COMPOSITE QUERY RULES:
+- If the question clearly spans TWO categories, return BOTH separated by a comma.
+  "Hospitals near Tamale with cardiology deserts" → GEO,SQL
+  "Facilities claiming surgery but lacking equipment in Northern region" → ANOMALY,GEO
+  "How many ophthalmology deserts exist and which facilities are closest?" → GEO,SQL
+  "What does Korle Bu offer and how does it compare to other hospitals?" → SEARCH,SQL
+- Never return more than 2 categories.
+- If in doubt, return just one.
+
+Respond with ONLY the category name(s). No explanation.
+Examples of valid responses: SQL | SEARCH | GEO,SQL | ANOMALY,GEO"""
 
 VALID_INTENTS = {"SQL", "SEARCH", "EXTRACT", "ANOMALY", "GEO"}
 
 
 @mlflow.trace(name="supervisor_node", span_type="AGENT")
 def supervisor_node(state: AgentState) -> dict:
-    """Normalize the user query (fix typos/grammar), then classify intent.
+    """Normalize the user query (fix typos/grammar), then classify intent(s).
 
-    Returns the cleaned query and intent label for conditional routing.
+    Returns the cleaned query and a list of intents. Composite queries
+    produce 2 intents for LangGraph fan-out; simple queries produce 1.
     Defaults to SQL (Genie) for unrecognized intents.
     """
     raw_query = state["query"]
@@ -96,10 +98,24 @@ def supervisor_node(state: AgentState) -> dict:
     if not cleaned or len(cleaned) > len(raw_query) * 5:
         cleaned = raw_query
 
-    # Step 2: Classify intent on the cleaned query
-    intent = query_llm(ROUTER_PROMPT, cleaned, max_tokens=10).strip().upper()
-    intent = intent.split()[0] if intent else "SQL"
-    if intent not in VALID_INTENTS:
-        intent = "SQL"
+    # Step 2: Classify intent(s) on the cleaned query
+    raw_intent = query_llm(ROUTER_PROMPT, cleaned, max_tokens=20).strip().upper()
 
-    return {"query": cleaned, "intent": intent}
+    # Parse: "GEO,SQL" → ["GEO", "SQL"] or "SQL" → ["SQL"]
+    tokens = [t.strip() for t in raw_intent.replace(" ", "").split(",")]
+    intents = [t for t in tokens if t in VALID_INTENTS]
+
+    # Deduplicate while preserving order, cap at 2
+    seen = set()
+    unique_intents = []
+    for i in intents:
+        if i not in seen:
+            seen.add(i)
+            unique_intents.append(i)
+    intents = unique_intents[:2]
+
+    # Fallback: default to SQL if nothing valid was parsed
+    if not intents:
+        intents = ["SQL"]
+
+    return {"query": cleaned, "intents": intents}
