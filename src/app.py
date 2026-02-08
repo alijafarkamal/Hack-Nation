@@ -454,23 +454,38 @@ with tab_chat:
         st.session_state.query = ""
         st.session_state.chat_history.append({"role": "user", "content": user_input})
 
-        with st.spinner("Thinking..."):
-            try:
-                answer = run_agent(user_input)
-                st.session_state.chat_history.append(
-                    {"role": "assistant", "content": answer}
-                )
-            except Exception as e:
-                error_msg = str(e)
-                if "timeout" in error_msg.lower():
-                    err = "Query timed out. Try again or simplify your question."
-                elif "quota" in error_msg.lower() or "rate" in error_msg.lower():
-                    err = "Rate limit hit. Wait a minute and retry."
-                else:
-                    err = f"Error: {error_msg}"
-                st.session_state.chat_history.append(
-                    {"role": "assistant", "content": err}
-                )
+        # Show user message immediately
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        # Stream the agent response word-by-word
+        with st.chat_message("assistant"):
+            with st.status("Thinking...", expanded=True) as status:
+                try:
+                    answer = run_agent(user_input)
+                    status.update(label="Done", state="complete", expanded=False)
+                except Exception as e:
+                    error_msg = str(e)
+                    if "timeout" in error_msg.lower():
+                        answer = "Query timed out. Try again or simplify your question."
+                    elif "quota" in error_msg.lower() or "rate" in error_msg.lower():
+                        answer = "Rate limit hit. Wait a minute and retry."
+                    else:
+                        answer = f"Error: {error_msg}"
+                    status.update(label="Error", state="error", expanded=False)
+
+            # Stream words for a typing effect
+            def _stream_words(text: str):
+                import time
+                for word in text.split(" "):
+                    yield word + " "
+                    time.sleep(0.02)
+
+            st.write_stream(_stream_words(answer))
+
+        st.session_state.chat_history.append(
+            {"role": "assistant", "content": answer}
+        )
         st.rerun()
 
     # Empty state
