@@ -9,6 +9,8 @@ This implements 'Intelligent Synthesis' (Technical Accuracy = 35% of scoring).
 
 import json
 
+import mlflow
+
 from src.state import AgentState
 from src.tools.model_serving_tool import query_llm
 
@@ -105,6 +107,7 @@ def _format_result_context(state: AgentState) -> str:
     return "\n---\n".join(parts) if parts else "No results found from any agent."
 
 
+@mlflow.trace(name="synthesis_node", span_type="CHAIN")
 def synthesis_node(state: AgentState) -> dict:
     """Synthesis node — cross-references all agent outputs and produces
     a citation-backed answer with data quality flags."""

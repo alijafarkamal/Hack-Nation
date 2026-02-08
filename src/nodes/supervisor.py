@@ -8,6 +8,8 @@ Two-step process:
 Uses Databricks Model Serving LLM for both steps.
 """
 
+import mlflow
+
 from src.state import AgentState
 from src.tools.model_serving_tool import query_llm
 
@@ -79,6 +81,7 @@ Respond with ONLY the category name (SQL, SEARCH, EXTRACT, ANOMALY, or GEO). No 
 VALID_INTENTS = {"SQL", "SEARCH", "EXTRACT", "ANOMALY", "GEO"}
 
 
+@mlflow.trace(name="supervisor_node", span_type="AGENT")
 def supervisor_node(state: AgentState) -> dict:
     """Normalize the user query (fix typos/grammar), then classify intent.
 

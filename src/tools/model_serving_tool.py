@@ -9,6 +9,7 @@ Ref: https://openrouter.ai/docs
 
 import logging
 
+import mlflow
 import requests
 from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
 
@@ -53,6 +54,7 @@ def _call_openrouter(
     return resp.json()["choices"][0]["message"]["content"]
 
 
+@mlflow.trace(name="query_llm", span_type="LLM")
 def query_llm(
     system_prompt: str,
     user_message: str,

@@ -6,10 +6,13 @@ the user's query by semantic similarity over procedure/equipment/capability colu
 Ref: https://docs.databricks.com/en/generative-ai/vector-search
 """
 
+import mlflow
+
 from src.state import AgentState
 from src.tools.vector_search_tool import query_vector_search
 
 
+@mlflow.trace(name="rag_agent_node", span_type="AGENT")
 def rag_agent_node(state: AgentState) -> dict:
     """RAG Agent — semantic search, returns top-k matching facilities + citation."""
     results = query_vector_search(state["query"])

@@ -12,6 +12,8 @@ Ref: resources/prompts_and_pydantic_models/free_form.py
 
 import json
 
+import mlflow
+
 from src.state import AgentState
 from src.tools.model_serving_tool import query_llm
 from src.tools.vector_search_tool import query_vector_search
@@ -39,6 +41,7 @@ RULES:
 - Empty arrays [] mean "no data found" — this is a valid signal, not missing data."""
 
 
+@mlflow.trace(name="idp_extraction_node", span_type="AGENT")
 def idp_extraction_node(state: AgentState) -> dict:
     """IDP Extraction — retrieves free-form text via Vector Search, then
     uses the LLM to extract structured facts from unstructured procedure/

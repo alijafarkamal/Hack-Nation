@@ -9,6 +9,8 @@ import math
 import os
 from pathlib import Path
 
+import mlflow
+
 from src.config import db_client
 from src.state import AgentState
 from src.tools.model_serving_tool import query_llm
@@ -140,6 +142,7 @@ Only include fields that are explicitly or strongly implied in the question.
 Respond with ONLY valid JSON, no markdown."""
 
 
+@mlflow.trace(name="geospatial_node", span_type="AGENT")
 def geospatial_node(state: AgentState) -> dict:
     """Geospatial node — handles distance queries, medical desert detection,
     and specialty coverage analysis.
