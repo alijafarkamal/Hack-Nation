@@ -174,6 +174,33 @@ CITY_TO_REGION: dict[str, str] = {
     "Sefwi": "Western North",
 }
 
+# ── Direct name-to-region for facilities with no city at all ──────────────────
+# These 22 facilities have zero city data.  Regions looked up individually.
+_NAME_TO_REGION: dict[str, str] = {
+    "Adansi Comunity Clinic": "Ashanti",            # Adansi district, Ashanti
+    "Amang Health Centre": "Western North",          # Amang, Sefwi area
+    "Anhwiaso Health Centre": "Western North",       # Anhwiaso, Sefwi Wiawso
+    "Beaver Dental": "Greater Accra",                # Accra-based chain
+    "Beaver Medical": "Greater Accra",               # Accra-based chain
+    "Cathedral Herbal & Fertility Clinic": "Greater Accra",  # Accra
+    "Digestive Diseases Aid": "Greater Accra",       # Accra
+    "Elubo Health Center": "Western",                # Elubo, border town
+    "Emofra Africa": "Greater Accra",                # Accra NGO
+    "Evergreen Opticals - Burma Camp, Recce Junction": "Greater Accra",  # Burma Camp, Accra
+    "Foundation Human Nature": "Greater Accra",      # Accra NGO
+    "Gloria Memorial Clinic": "Greater Accra",       # Accra
+    "Imam Ali Spiritual And Herbal Center": "Greater Accra",  # Accra
+    "Juabo Community Clinic": "Eastern",             # Juabo, Eastern region
+    "Kate Afram Clinic": "Eastern",                  # Afram Plains area
+    "Nkwanta Clinic": "Oti",                         # Nkwanta, Oti region
+    "Raphal Medical Centre": "Greater Accra",        # Accra
+    "Revoobit MirraCell+ Gh.": "Greater Accra",     # Accra
+    "Salifu Memorial Clinic": "Northern",            # Northern Ghana
+    "Shekinah Herbal TV GH": "Greater Accra",        # Accra
+    "SVG Africa": "Greater Accra",                   # Accra NGO
+    "Wassa Mampong Health Center": "Western",        # Wassa Mampong, Western
+}
+
 # ── Facility type inference from name ─────────────────────────────────────────
 _TYPE_KEYWORDS: list[tuple[list[str], str]] = [
     (["hospital", "teaching", "polyclinic", "regional hospital"], "hospital"),
@@ -344,7 +371,7 @@ def _load_from_csv() -> list[dict]:
                 return default
             return val
 
-        # ── Region resolution (3 layers) ──
+        # ── Region resolution (4 layers) ──
         region = _safe(row.get("region_normalized"))
         if not region or region not in GHANA_REGIONS:
             # Layer A: dynamic map from same-CSV rows
@@ -353,6 +380,9 @@ def _load_from_csv() -> list[dict]:
             else:
                 # Layer B + C: static CITY_TO_REGION + name heuristics
                 region = _infer_region(city or "", name)
+        # Layer D: direct name lookup for facilities with no city at all
+        if not region or region not in GHANA_REGIONS:
+            region = _NAME_TO_REGION.get(name, region)
 
         # ── Facility type resolution ──
         ftype = _safe(row.get("facilityTypeId"))
@@ -483,10 +513,10 @@ def get_flagged_facilities() -> list[dict]:
 
         if flags:
             flagged.append({
-                "name": f.get("name", "Unknown"),
-                "type": f.get("facilityTypeId", "—"),
-                "city": f.get("address_city", "—"),
-                "region": f.get("region_normalized", "—"),
+                "name": f.get("name") or "Unknown",
+                "type": f.get("facilityTypeId") or "Unknown",
+                "city": f.get("address_city") or "Unknown",
+                "region": f.get("region_normalized") or "Unknown",
                 "specialties_count": len(specs),
                 "procedures_count": len(procs),
                 "equipment_count": len(equip),
