@@ -71,6 +71,160 @@ GHANA_REGIONS = [
     "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North",
 ]
 
+# ── City-to-Region lookup (static geographic facts) ──────────────────────────
+# Covers every Ghanaian city that appears in the dataset so we can fill
+# missing region values at load time.  Built from Ghana Statistical Service
+# district/region assignments.
+CITY_TO_REGION: dict[str, str] = {
+    # Greater Accra
+    "Accra": "Greater Accra", "ACCRA": "Greater Accra",
+    "Tema": "Greater Accra", "Ashaiman": "Greater Accra",
+    "Oyarifa": "Greater Accra", "East Legon": "Greater Accra",
+    "Achimota": "Greater Accra", "Adenta Municipality": "Greater Accra",
+    "Adentan": "Greater Accra", "Agbogba": "Greater Accra",
+    "Accra Central": "Greater Accra", "Accra Newtown": "Greater Accra",
+    "Amasaman": "Greater Accra", "Ashale-Botwe": "Greater Accra",
+    "Dzorwulu": "Greater Accra", "Greater Accra": "Greater Accra",
+    "Haatso": "Greater Accra", "Klagon": "Greater Accra",
+    "Kwashieman": "Greater Accra", "Labadi": "Greater Accra",
+    "Lapaz": "Greater Accra", "Mataheko": "Greater Accra",
+    "Mempeasem": "Greater Accra", "New Ashongman": "Greater Accra",
+    "New Weija": "Greater Accra", "Nungua": "Greater Accra",
+    "Odorkor": "Greater Accra", "Osu – Accra East": "Greater Accra",
+    "Pokoase": "Greater Accra", "Teshie": "Greater Accra",
+    "North Kaneshie": "Greater Accra", "Darkuman-Nyamekye": "Greater Accra",
+    "Maamobi": "Greater Accra", "Dome": "Greater Accra",
+    # Ashanti
+    "Kumasi": "Ashanti", "Ejisu": "Ashanti", "Ejura": "Ashanti",
+    "Kwadaso": "Ashanti", "Obuasi": "Ashanti", "Agona Ashanti": "Ashanti",
+    "Ahodwo": "Ashanti", "Asokore": "Ashanti",
+    "Asokore Mampong": "Ashanti", "Atonsu Kumasi": "Ashanti",
+    "BUOKROM": "Ashanti", "Boamadumasi": "Ashanti",
+    "Jacobu": "Ashanti", "Juaben": "Ashanti", "Kokofu": "Ashanti",
+    "Kumawu": "Ashanti", "Kwabeng": "Ashanti",
+    "Mankranso": "Ashanti", "Manso Amenfi": "Ashanti",
+    "Nkenkaso": "Ashanti", "Offinso": "Ashanti",
+    "Santasi": "Ashanti", "Tikrom": "Ashanti",
+    "Asamang": "Ashanti", "Drobonso": "Ashanti",
+    "Kuntanase": "Ashanti",
+    # Western
+    "Takoradi": "Western", "TAKORADI": "Western",
+    "Sekondi": "Western", "Tarkwa": "Western",
+    "Axim": "Western", "Dixcove": "Western",
+    "Kojokrom/Sekondi": "Western", "Kwesimintsim": "Western",
+    "Aboadze": "Western", "Agona Nkwanta": "Western",
+    # Western North
+    "Bibiani": "Western North", "Juaboso": "Western North",
+    "Sefwi Asawinso": "Western North", "Sefwi Bekwai": "Western North",
+    "Sefwi Boinzan": "Western North", "Sefwi Essam": "Western North",
+    # Central
+    "Cape Coast": "Central", "Cabo Corso": "Central",
+    "Dunkwa-On-Offin": "Central", "Agona Swedru": "Central",
+    "Agona Swfru": "Central", "Abura": "Central",
+    "Ayanfuri": "Central", "Asin": "Central",
+    "Breman Asikuma": "Central", "Swedru": "Central",
+    # Eastern
+    "Koforidua": "Eastern", "Nkawkaw": "Eastern",
+    "Nsawam": "Eastern", "Suhum": "Eastern",
+    "Asamankese": "Eastern", "Akuapem Mampong": "Eastern",
+    "Mampong-Akwapim": "Eastern", "Somanya": "Eastern",
+    "New Abirim": "Eastern", "Adoagyiri-adeiso": "Eastern",
+    "Akwatia": "Eastern", "Obosomase": "Eastern",
+    "Odonkawkrom": "Eastern",
+    # Volta
+    "Ho": "Volta", "Keta": "Volta", "Aflao": "Volta",
+    "Sogakope": "Volta", "Akatsi": "Volta",
+    "Hohoe": "Volta", "Anloga": "Volta",
+    "Adidome": "Volta", "Nope": "Volta",
+    # Oti
+    "Drobonso": "Ashanti",  # already above; Drobonso is Ashanti
+    "Bimbila": "North East",
+    # Northern
+    "Tamale": "Northern", "Yendi": "Northern",
+    "Tolon": "Northern", "Karaga": "Northern",
+    "Sromani": "Northern",
+    # North East
+    "Nalerigu": "North East", "Nogsenia": "North East",
+    "Yabologu": "North East",
+    # Savannah
+    "Salaga": "Savannah", "Bole": "Savannah",
+    "Kabiase Gonja": "Savannah",
+    # Upper East
+    "Bawku": "Upper East", "Sandema": "Upper East",
+    # Upper West
+    "Daffiama": "Upper West", "Nadawli": "Upper West",
+    "Wechiau": "Upper West",
+    # Bono
+    "Sunyani": "Bono", "Berekum": "Bono",
+    "Dormaa Ahenkro": "Bono", "Goaso": "Bono",
+    "Abesim": "Bono", "Abesim - Sunyani": "Bono",
+    "Banda": "Bono",
+    # Bono East
+    "Techiman": "Bono East", "Atebubu": "Bono East",
+    "Kintampo": "Bono East",
+    # Ahafo
+    "Asuofia": "Ahafo", "Ateiku": "Ahafo",
+    # Misc variant spellings / sub-localities
+    "Afransi": "Ashanti", "Lamboya": "Northern",
+    "Kparigu": "Northern", "Kawkawti": "Northern",
+    "Mepom": "Upper East", "Zabzugu Tatale": "Northern",
+    "Ghana": "Greater Accra",  # generic "Ghana" → default to capital
+    # Late additions — small towns found in residual check
+    "Abomosu": "Eastern", "Nsuta": "Ashanti",
+    "Sefwi": "Western North",
+}
+
+# ── Facility type inference from name ─────────────────────────────────────────
+_TYPE_KEYWORDS: list[tuple[list[str], str]] = [
+    (["hospital", "teaching", "polyclinic", "regional hospital"], "hospital"),
+    (["clinic", "medical centre", "medical center", "health centre",
+      "health center", "health post", "maternity home", "chps"], "clinic"),
+    (["pharmacy", "drug", "chemical", "pharma"], "pharmacy"),
+    (["dental", "dentist", "dentistry"], "dentist"),
+    (["laboratory", "lab", "diagnostic"], "clinic"),  # lab → clinic bucket
+]
+
+
+def _infer_facility_type(name: str) -> str:
+    """Infer facility type from its name using keyword matching.
+
+    Falls back to 'clinic' (most common primary care type in Ghana).
+    """
+    if not name:
+        return "clinic"
+    low = name.lower()
+    for keywords, ftype in _TYPE_KEYWORDS:
+        for kw in keywords:
+            if kw in low:
+                return ftype
+    return "clinic"
+
+
+def _infer_region(city: str, name: str) -> str:
+    """Three-layer region inference:
+    1. Static CITY_TO_REGION lookup (covers ~122 cities)
+    2. Case-insensitive / title-case fallback
+    3. Facility name heuristics (city names embedded in facility names)
+    """
+    if city:
+        # Layer 1: exact match
+        region = CITY_TO_REGION.get(city)
+        if region:
+            return region
+        # Layer 2: title-case / upper-case fallback
+        region = CITY_TO_REGION.get(city.title()) or CITY_TO_REGION.get(city.upper())
+        if region:
+            return region
+
+    # Layer 3: search facility name for known city names
+    if name:
+        low_name = name.lower()
+        for known_city, region in CITY_TO_REGION.items():
+            if known_city.lower() in low_name:
+                return region
+
+    return ""
+
 
 def _enrich_coords(city) -> tuple[float | None, float | None]:
     """Look up lat/lon for a city from the static geocoding file."""
@@ -148,23 +302,41 @@ def _load_from_databricks() -> list[dict] | None:
 
 
 def _load_from_csv() -> list[dict]:
-    """Load facility data from local CSV as fallback."""
+    """Load facility data from local CSV as fallback.
+
+    Applies multi-layer data cleaning:
+      1. Fix typos (farmacy → pharmacy)
+      2. Normalize region from raw column via _REGION_MAP
+      3. Fill missing regions via CITY_TO_REGION + name heuristics
+      4. Fill missing facility types via _infer_facility_type()
+      5. Enrich with lat/lon from city-coords lookup
+    """
     csv_path = _CSV_PATH if _CSV_PATH.exists() else _CSV_FALLBACK
     df = pd.read_csv(csv_path, low_memory=False)
 
     # Fix farmacy typo
     df["facilityTypeId"] = df["facilityTypeId"].replace("farmacy", "pharmacy")
 
-    # Normalize region
+    # Step 1: Normalize region from raw column (covers ~254 rows that have data)
     df["region_normalized"] = (
         df["address_stateOrRegion"].map(_REGION_MAP).fillna(df["address_stateOrRegion"])
     )
 
+    # Step 2: Build a dynamic city→region map from rows that DO have a region
+    _dynamic_city_region: dict[str, str] = {}
+    for _, row in df.iterrows():
+        city = row.get("address_city")
+        region = row.get("region_normalized")
+        if (isinstance(city, str) and city.strip()
+                and isinstance(region, str) and region.strip()
+                and region in GHANA_REGIONS):
+            _dynamic_city_region[city.strip()] = region
+
     facilities = []
     for _, row in df.iterrows():
         city = row.get("address_city")
-        city = city if isinstance(city, str) else None
-        lat, lon = _enrich_coords(city)
+        city = city.strip() if isinstance(city, str) else None
+        name = str(row.get("name", "")) if not pd.isna(row.get("name")) else ""
 
         def _safe(val, default=""):
             """Return val if it's a real value, else default."""
@@ -172,12 +344,29 @@ def _load_from_csv() -> list[dict]:
                 return default
             return val
 
+        # ── Region resolution (3 layers) ──
+        region = _safe(row.get("region_normalized"))
+        if not region or region not in GHANA_REGIONS:
+            # Layer A: dynamic map from same-CSV rows
+            if city and city in _dynamic_city_region:
+                region = _dynamic_city_region[city]
+            else:
+                # Layer B + C: static CITY_TO_REGION + name heuristics
+                region = _infer_region(city or "", name)
+
+        # ── Facility type resolution ──
+        ftype = _safe(row.get("facilityTypeId"))
+        if not ftype:
+            ftype = _infer_facility_type(name)
+
+        lat, lon = _enrich_coords(city)
+
         facilities.append({
-            "name": _safe(row.get("name"), "Unknown"),
-            "facilityTypeId": _safe(row.get("facilityTypeId")),
+            "name": name or "Unknown",
+            "facilityTypeId": ftype,
             "operatorTypeId": _safe(row.get("operatorTypeId")),
             "address_city": city or "",
-            "region_normalized": _safe(row.get("region_normalized")),
+            "region_normalized": region,
             "specialties": _safe(row.get("specialties"), "[]"),
             "description": _safe(row.get("description")),
             "capability": _safe(row.get("capability"), "[]"),
