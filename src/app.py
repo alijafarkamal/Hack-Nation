@@ -444,13 +444,15 @@ with tab_planner:
         try:
             region_stats = get_region_stats()
             if region_stats:
+                counts = list(region_stats.values())
+                regions = list(region_stats.keys())
                 fig = px.bar(
-                    x=list(region_stats.values()),
-                    y=list(region_stats.keys()),
+                    x=counts,
+                    y=regions,
                     orientation="h",
-                    labels={"x": "Count", "y": ""},
-                    color=list(region_stats.values()),
-                    color_continuous_scale="Blues",
+                    labels={"x": "Facility Count", "y": ""},
+                    color=counts,
+                    color_continuous_scale=[[0, "#e53e3e"], [0.5, "#ecc94b"], [1, "#38a169"]],
                 )
                 fig.update_layout(
                     showlegend=False, height=350,
@@ -458,6 +460,9 @@ with tab_planner:
                     coloraxis_showscale=False,
                     paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
+                    xaxis=dict(title_font_size=12, gridcolor="rgba(160,174,192,0.15)"),
+                    yaxis=dict(title_font_size=12),
+                    font=dict(size=11),
                 )
                 st.plotly_chart(fig)
         except Exception:
@@ -476,7 +481,7 @@ with tab_planner:
                     values=list(type_stats.values()),
                     names=[k.title() for k in type_stats.keys()],
                     hole=0.45,
-                    color_discrete_sequence=["#3182ce", "#48bb78", "#ed8936", "#9f7aea", "#a0aec0"],
+                    color_discrete_sequence=["#e53e3e", "#38a169", "#ecc94b", "#805ad5", "#a0aec0"],
                 )
                 fig2.update_layout(
                     height=250, margin=dict(l=0, r=0, t=5, b=5),
@@ -576,12 +581,12 @@ with tab_map:
     # Legend bar
     st.markdown("""
     <div class="legend-bar">
-        <div class="legend-item"><span class="legend-dot" style="background:#3186cc;"></span> Hospital</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#72af26;"></span> Clinic</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#f69730;"></span> Pharmacy</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#d63e7b;"></span> Dentist</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#575757;"></span> Doctor</div>
-        <div class="legend-item"><span class="legend-dot" style="background:red; opacity:0.5;"></span> Medical Desert</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#e53e3e;"></span> Hospital</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#38a169;"></span> Clinic</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#ed8936;"></span> Pharmacy</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#805ad5;"></span> Dentist</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#3182ce;"></span> Doctor</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#e53e3e; opacity:0.35;"></span> Medical Desert</div>
     </div>
     """, unsafe_allow_html=True)
 

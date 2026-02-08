@@ -18,12 +18,14 @@ GHANA_CENTER = [7.9465, -1.0232]
 GHANA_ZOOM = 7
 
 # Marker colors by facility type
+# Red = hospitals (critical care), Green = clinics (primary/community),
+# Orange = pharmacies, Purple = dentists, Blue = doctors
 FACILITY_COLORS = {
-    "hospital": "blue",
+    "hospital": "red",
     "clinic": "green",
     "pharmacy": "orange",
     "dentist": "purple",
-    "doctor": "gray",
+    "doctor": "blue",
 }
 
 # Friendly labels
