@@ -24,7 +24,7 @@ DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN")
 mlflow.set_tracking_uri("databricks")
 os.environ.setdefault("DATABRICKS_HOST", DATABRICKS_HOST or "")
 os.environ.setdefault("DATABRICKS_TOKEN", DATABRICKS_TOKEN or "")
-mlflow.set_experiment("/Users/mmoussaif2@gmail.com/ghana-medical-agent")
+mlflow.set_experiment(os.getenv("MLFLOW_EXPERIMENT_PATH", "/Shared/ghana-medical-agent"))
 
 db_client = WorkspaceClient(host=DATABRICKS_HOST, token=DATABRICKS_TOKEN)
 
