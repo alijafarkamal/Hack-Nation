@@ -625,9 +625,11 @@ with tab_map:
     st.markdown("""
     <div class="legend-bar">
         <span style="font-weight:600; margin-right:0.5rem;">Cluster bubbles:</span>
-        <div class="legend-item"><span class="legend-dot" style="background:#f4a261;"></span> Small (1-9)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#adce74;"></span> Medium (10-99)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#1ea446;"></span> Large (100+)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#e8a544;"></span> Fewer</div>
+        <div class="legend-item" style="font-size:16px;">&#8594;</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#a8d26e;"></span> More</div>
+        <div class="legend-item" style="font-size:16px;">&#8594;</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#1ea446;"></span> Most</div>
         <span style="border-left:1px solid rgba(160,174,192,0.4); height:16px; margin:0 0.5rem;"></span>
         <div class="legend-item"><span class="legend-dot" style="background:#e53e3e; opacity:0.35;"></span> Medical Desert</div>
     </div>
