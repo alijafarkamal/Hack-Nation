@@ -17,6 +17,7 @@ import re
 import mlflow
 
 from src.config import db_client
+from src.data_loader import CITY_TO_REGION
 from src.state import AgentState
 from src.tools.genie_tool import query_genie
 
@@ -24,6 +25,33 @@ log = logging.getLogger(__name__)
 
 # Columns to fetch when rewriting aggregate → detail query
 _DETAIL_COLS = "name, region_normalized, facilityTypeId, address_city"
+
+
+def _fill_region(row: list[str]) -> list[str]:
+    """Fill missing region (index 1) using city (index 3) or facility name."""
+    region = (row[1] or "").strip() if len(row) > 1 else ""
+    if region and region.lower() not in ("", "unknown", "none", "null"):
+        return row
+
+    # Try city → region lookup
+    city = (row[3] or "").strip() if len(row) > 3 else ""
+    if city:
+        for city_key, reg in CITY_TO_REGION.items():
+            if city_key.lower() == city.lower():
+                row[1] = reg
+                return row
+
+    # Try name-based inference
+    name = (row[0] or "").strip() if row else ""
+    name_lower = name.lower()
+    for city_key, reg in CITY_TO_REGION.items():
+        if len(city_key) >= 4 and city_key.lower() in name_lower:
+            row[1] = reg
+            return row
+
+    # Default fallback
+    row[1] = "Greater Accra"
+    return row
 
 
 def _is_aggregate_only(result: dict) -> bool:
@@ -119,6 +147,8 @@ def sql_agent_node(state: AgentState) -> dict:
                         if key and key not in seen:
                             seen.add(key)
                             unique_rows.append(row)
+                    # Fill missing regions
+                    unique_rows = [_fill_region(list(r)) for r in unique_rows]
                     result["detail_data"] = unique_rows
                     result["detail_columns"] = cols
                     log.info("Got %d unique facility rows from rewritten SQL", len(unique_rows))
