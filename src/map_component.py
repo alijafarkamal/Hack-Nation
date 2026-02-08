@@ -18,7 +18,7 @@ GHANA_CENTER = [7.9465, -1.0232]
 GHANA_ZOOM = 7
 
 # All markers use the same dark-blue color so they don't clash with
-# MarkerCluster colors (green = many facilities, red = few).
+# MarkerCluster colors (green = few, yellow = medium, orange = many).
 # Facility types are distinguished by icon shape instead.
 FACILITY_COLORS = {
     "hospital": "darkblue",
