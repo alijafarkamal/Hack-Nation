@@ -86,6 +86,10 @@ def _generate_planning_pdf(
     from fpdf import FPDF
     from datetime import datetime
 
+    def _safe(text: str) -> str:
+        """Replace non-latin1 characters so Helvetica can render them."""
+        return text.encode("latin-1", "replace").decode("latin-1")
+
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
@@ -117,7 +121,7 @@ def _generate_planning_pdf(
     pdf.cell(0, 10, "Facilities by Region", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
     for region, count in region_stats.items():
-        pdf.cell(90, 6, f"  {region}", new_x="RIGHT")
+        pdf.cell(90, 6, f"  {_safe(str(region))}", new_x="RIGHT")
         pdf.cell(0, 6, str(count), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
@@ -126,7 +130,7 @@ def _generate_planning_pdf(
     pdf.cell(0, 10, "Facility Types", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
     for ftype, count in type_stats.items():
-        pdf.cell(90, 6, f"  {ftype.title()}", new_x="RIGHT")
+        pdf.cell(90, 6, f"  {_safe(ftype.title())}", new_x="RIGHT")
         pdf.cell(0, 6, str(count), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
@@ -143,10 +147,10 @@ def _generate_planning_pdf(
         pdf.cell(0, 6, "Issue", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
         # Rows
         for f in flagged_list[:50]:
-            name = (f.get("name") or "—")[:30]
-            ftype = (f.get("type") or "—")[:12]
-            region = (f.get("region") or "—")[:15]
-            issue = (f.get("flags") or "—")[:55]
+            name = _safe((f.get("name") or "-")[:30])
+            ftype = _safe((f.get("type") or "-")[:12])
+            region = _safe((f.get("region") or "-")[:15])
+            issue = _safe((f.get("flags") or "-")[:55])
             pdf.cell(60, 5, name, border=1)
             pdf.cell(25, 5, ftype, border=1)
             pdf.cell(30, 5, region, border=1)
@@ -159,7 +163,7 @@ def _generate_planning_pdf(
     pdf.ln(10)
     pdf.set_font("Helvetica", "I", 8)
     pdf.set_text_color(150, 150, 150)
-    pdf.cell(0, 5, "Ghana Medical Intelligence Agent — Hack Nation", align="C")
+    pdf.cell(0, 5, "Ghana Medical Intelligence Agent - Hack Nation", align="C")
 
     return pdf.output()
 
