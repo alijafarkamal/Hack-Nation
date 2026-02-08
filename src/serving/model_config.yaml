@@ -1,0 +1,33 @@
+# Model configuration for the Ghana Medical Intelligence Agent.
+#
+# Used by MLflow ModelConfig to parametrize the agent across environments
+# (dev, staging, production) without changing code.
+#
+# Ref: https://docs.databricks.com/aws/en/generative-ai/agent-framework/author-agent
+
+# ── LLM parameters ──────────────────────────────────────────────────────────
+llm_endpoint: "databricks-qwen3-next-80b-a3b-instruct"
+llm_parameters:
+  max_tokens: 2048
+  temperature: 0.1
+
+# ── OpenRouter fallback (when Databricks Model Serving is unavailable) ──────
+openrouter_model: "minimax/minimax-m2.1"
+
+# ── Databricks services ─────────────────────────────────────────────────────
+genie_space_id: "${GENIE_SPACE_ID}"
+vector_search_index: "${VECTOR_SEARCH_INDEX}"
+vector_search_endpoint: "${VECTOR_SEARCH_ENDPOINT}"
+databricks_catalog: "hack_nation"
+databricks_schema: "ghana_medical"
+
+# ── MLflow experiment ────────────────────────────────────────────────────────
+mlflow_experiment_path: "/Shared/ghana-medical-agent"
+
+# ── Agent metadata ───────────────────────────────────────────────────────────
+agent_name: "ghana-medical-agent"
+agent_description: >
+  Multi-agent system for Ghana healthcare facility intelligence.
+  Routes queries to SQL, semantic search, IDP extraction, anomaly detection,
+  and geospatial agents via LangGraph. Supports composite queries with
+  parallel fan-out to 2+ agents.
