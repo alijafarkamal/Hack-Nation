@@ -77,93 +77,261 @@ def _generate_planning_pdf(
     total_facilities: int,
     total_ngos: int,
     total_flagged: int,
-    cardiology_deserts: int,
+    selected_specialty: str,
+    desert_regions: list[str],
+    covered_regions: list[str],
     region_stats: dict,
     type_stats: dict,
     flagged_list: list[dict],
 ) -> bytes:
-    """Generate a Mission Planner PDF report and return as bytes."""
+    """Generate a Mission Planner PDF report mirroring the Streamlit dashboard.
+
+    Sections: metric cards, specialty coverage, facilities by region,
+    facility types, and flagged facilities with issue descriptions.
+    """
     from fpdf import FPDF
     from datetime import datetime
 
     def _safe(text: str) -> str:
-        """Replace non-latin1 characters so Helvetica can render them."""
         return text.encode("latin-1", "replace").decode("latin-1")
 
+    # ── Colour palette ───────────────────────────────────────────────────
+    PRIMARY = (40, 67, 135)       # dark blue header
+    ACCENT_RED = (229, 62, 62)    # red metric / desert badge
+    ACCENT_GREEN = (56, 161, 105) # green covered badge
+    ACCENT_BLUE = (66, 133, 244)  # blue metric
+    LIGHT_BG = (245, 247, 250)    # light grey card background
+    WHITE = (255, 255, 255)
+    BLACK = (30, 30, 30)
+    GREY = (120, 120, 120)
+
+    pw = 190  # usable page width (A4 minus margins)
+
     pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    # ── Title ──
-    pdf.set_font("Helvetica", "B", 20)
-    pdf.cell(0, 12, "Ghana Medical Intelligence Report", new_x="LMARGIN", new_y="NEXT", align="C")
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(120, 120, 120)
-    pdf.cell(0, 6, f"Generated {datetime.now().strftime('%B %d, %Y at %H:%M')}", new_x="LMARGIN", new_y="NEXT", align="C")
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(8)
+    # ── Title bar ────────────────────────────────────────────────────────
+    pdf.set_fill_color(*PRIMARY)
+    pdf.rect(10, 10, pw, 22, "F")
+    pdf.set_xy(10, 13)
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_text_color(*WHITE)
+    pdf.cell(pw, 8, "Ghana Medical Intelligence Report", align="C")
+    pdf.set_xy(10, 22)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(pw, 6, f"Generated {datetime.now().strftime('%B %d, %Y at %H:%M')}", align="C")
+    pdf.set_text_color(*BLACK)
+    pdf.ln(22)
 
-    # ── Summary metrics ──
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.cell(0, 10, "Summary", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 11)
-    for label, val in [
-        ("Total Facilities", total_facilities),
-        ("Total NGOs", total_ngos),
-        ("Flagged Facilities", total_flagged),
-        ("Cardiology Desert Regions", cardiology_deserts),
-    ]:
-        pdf.cell(0, 7, f"  {label}: {val}", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(6)
-
-    # ── Facilities by Region ──
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.cell(0, 10, "Facilities by Region", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 10)
-    for region, count in region_stats.items():
-        pdf.cell(90, 6, f"  {_safe(str(region))}", new_x="RIGHT")
-        pdf.cell(0, 6, str(count), new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
-
-    # ── Facility Types ──
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.cell(0, 10, "Facility Types", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 10)
-    for ftype, count in type_stats.items():
-        pdf.cell(90, 6, f"  {_safe(ftype.title())}", new_x="RIGHT")
-        pdf.cell(0, 6, str(count), new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
-
-    # ── Flagged Facilities ──
-    if flagged_list:
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.cell(0, 10, "Flagged Facilities", new_x="LMARGIN", new_y="NEXT")
+    # ── Metric cards (4 across) ──────────────────────────────────────────
+    card_w = pw / 4 - 2
+    card_h = 18
+    metrics = [
+        (str(total_facilities), "Facilities", ACCENT_BLUE),
+        (str(total_ngos), "NGOs", ACCENT_BLUE),
+        (str(total_flagged), "Flagged", ACCENT_RED),
+        (str(len(desert_regions)), f"{_safe(selected_specialty.title())} Deserts", ACCENT_RED),
+    ]
+    y0 = pdf.get_y()
+    for i, (val, label, color) in enumerate(metrics):
+        x = 10 + i * (card_w + 2.5)
+        pdf.set_fill_color(*LIGHT_BG)
+        pdf.rect(x, y0, card_w, card_h, "F")
+        # value
+        pdf.set_xy(x, y0 + 2)
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.set_text_color(*color)
+        pdf.cell(card_w, 7, val, align="C")
+        # label
+        pdf.set_xy(x, y0 + 9)
         pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(*GREY)
+        pdf.cell(card_w, 5, _safe(label), align="C")
+    pdf.set_text_color(*BLACK)
+    pdf.set_y(y0 + card_h + 6)
+
+    # ── Specialty Coverage (Medical Desert Finder) ───────────────────────
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_text_color(*PRIMARY)
+    pdf.cell(0, 8, f"Medical Desert Finder  -  {_safe(selected_specialty.title())}", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*BLACK)
+
+    if desert_regions:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 6, f"No coverage ({len(desert_regions)} regions):", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 9)
+        x0 = pdf.get_x()
+        y_line = pdf.get_y()
+        for region in desert_regions:
+            txt = _safe(region)
+            tw = pdf.get_string_width(txt) + 6
+            if x0 + tw > 200:
+                x0 = 10
+                y_line += 6
+                pdf.set_xy(x0, y_line)
+            pdf.set_xy(x0, y_line)
+            pdf.set_fill_color(254, 215, 215)
+            pdf.set_text_color(*ACCENT_RED)
+            pdf.cell(tw, 5, txt, fill=True)
+            x0 += tw + 2
+        pdf.set_text_color(*BLACK)
+        pdf.set_y(y_line + 7)
+    else:
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(*ACCENT_GREEN)
+        pdf.cell(0, 6, "All regions covered!", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(*BLACK)
+
+    if covered_regions:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 6, f"Has coverage ({len(covered_regions)} regions):", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 9)
+        x0 = pdf.get_x()
+        y_line = pdf.get_y()
+        for region in covered_regions:
+            txt = _safe(region)
+            tw = pdf.get_string_width(txt) + 6
+            if x0 + tw > 200:
+                x0 = 10
+                y_line += 6
+                pdf.set_xy(x0, y_line)
+            pdf.set_xy(x0, y_line)
+            pdf.set_fill_color(198, 246, 213)
+            pdf.set_text_color(*ACCENT_GREEN)
+            pdf.cell(tw, 5, txt, fill=True)
+            x0 += tw + 2
+        pdf.set_text_color(*BLACK)
+        pdf.set_y(y_line + 9)
+
+    # ── Facilities by Region (horizontal bar-style) ──────────────────────
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_text_color(*PRIMARY)
+    pdf.cell(0, 8, "Facilities by Region", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*BLACK)
+
+    if region_stats:
+        max_count = max(region_stats.values()) or 1
+        bar_max_w = 100
+        pdf.set_font("Helvetica", "", 9)
+        for region, count in region_stats.items():
+            bar_w = max(2, (count / max_count) * bar_max_w)
+            pdf.cell(50, 5, _safe(str(region)), new_x="RIGHT")
+            # draw bar
+            y_bar = pdf.get_y() + 0.5
+            x_bar = pdf.get_x() + 2
+            # gradient colour: red < 30, yellow < 100, green >= 100
+            if count < 30:
+                pdf.set_fill_color(229, 62, 62)
+            elif count < 100:
+                pdf.set_fill_color(236, 201, 75)
+            else:
+                pdf.set_fill_color(56, 161, 105)
+            pdf.rect(x_bar, y_bar, bar_w, 4, "F")
+            pdf.set_xy(x_bar + bar_w + 2, pdf.get_y())
+            pdf.cell(20, 5, str(count))
+            pdf.ln(5)
+    pdf.ln(4)
+
+    # ── Facility Types ───────────────────────────────────────────────────
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_text_color(*PRIMARY)
+    pdf.cell(0, 8, "Facility Types", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*BLACK)
+
+    if type_stats:
+        total = sum(type_stats.values()) or 1
+        type_colors = [
+            (229, 62, 62), (56, 161, 105), (236, 201, 75),
+            (128, 90, 213), (66, 133, 244),
+        ]
+        pdf.set_font("Helvetica", "", 10)
+        for i, (ftype, count) in enumerate(type_stats.items()):
+            pct = count / total * 100
+            color = type_colors[i % len(type_colors)]
+            pdf.set_fill_color(*color)
+            pdf.rect(pdf.get_x(), pdf.get_y() + 1, 4, 4, "F")
+            pdf.set_x(pdf.get_x() + 6)
+            pdf.cell(60, 6, _safe(ftype.title()), new_x="RIGHT")
+            pdf.cell(20, 6, str(count), new_x="RIGHT")
+            pdf.cell(0, 6, f"({pct:.1f}%)", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # ── Flagged Facilities ───────────────────────────────────────────────
+    if flagged_list:
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_text_color(*PRIMARY)
+        pdf.cell(0, 8, f"Flagged Facilities ({len(flagged_list)})", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(*BLACK)
+
         # Table header
-        pdf.set_fill_color(230, 230, 230)
-        pdf.cell(60, 6, "Facility", border=1, fill=True)
-        pdf.cell(25, 6, "Type", border=1, fill=True)
-        pdf.cell(30, 6, "Region", border=1, fill=True)
-        pdf.cell(0, 6, "Issue", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
-        # Rows
-        for f in flagged_list[:50]:
-            name = _safe((f.get("name") or "-")[:30])
+        pdf.set_font("Helvetica", "B", 7)
+        pdf.set_fill_color(*PRIMARY)
+        pdf.set_text_color(*WHITE)
+        col_w = [8, 52, 22, 28, 80]
+        headers = ["#", "Facility", "Type", "Region", "Issue"]
+        for w, h in zip(col_w, headers):
+            pdf.cell(w, 5, h, border=1, fill=True)
+        pdf.ln()
+        pdf.set_text_color(*BLACK)
+
+        # Rows with alternating background
+        pdf.set_font("Helvetica", "", 7)
+        for idx, f in enumerate(flagged_list[:80], 1):
+            if idx % 2 == 0:
+                pdf.set_fill_color(245, 247, 250)
+            else:
+                pdf.set_fill_color(*WHITE)
+            name = _safe((f.get("name") or "-")[:28])
             ftype = _safe((f.get("type") or "-")[:12])
             region = _safe((f.get("region") or "-")[:15])
-            issue = _safe((f.get("flags") or "-")[:55])
-            pdf.cell(60, 5, name, border=1)
-            pdf.cell(25, 5, ftype, border=1)
-            pdf.cell(30, 5, region, border=1)
-            pdf.cell(0, 5, issue, border=1, new_x="LMARGIN", new_y="NEXT")
-        if len(flagged_list) > 50:
+            issue = _safe((f.get("flags") or "-")[:48])
+            row = [str(idx), name, ftype, region, issue]
+            for w, val in zip(col_w, row):
+                pdf.cell(w, 4.5, val, border=1, fill=True)
+            pdf.ln()
+        if len(flagged_list) > 80:
             pdf.set_font("Helvetica", "I", 8)
-            pdf.cell(0, 6, f"  ... and {len(flagged_list) - 50} more", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 5, f"  ... and {len(flagged_list) - 80} more", new_x="LMARGIN", new_y="NEXT")
 
-    # ── Footer ──
+    # ── Footer ───────────────────────────────────────────────────────────
     pdf.ln(10)
-    pdf.set_font("Helvetica", "I", 8)
+    y_foot = pdf.get_y()
+
+    # Divider line
+    pdf.set_draw_color(*PRIMARY)
+    pdf.set_line_width(0.4)
+    pdf.line(10, y_foot, 200, y_foot)
+    pdf.ln(4)
+
+    # Disclaimer
+    pdf.set_font("Helvetica", "I", 7)
+    pdf.set_text_color(100, 100, 100)
+    pdf.multi_cell(
+        0, 3.5,
+        "DISCLAIMER: This report is generated by an AI-powered analytical system and is intended "
+        "for informational and planning purposes only. It does not constitute medical advice, clinical "
+        "guidance, or an official assessment. Data may be incomplete or reflect the state of the source "
+        "databases at the time of generation. Health authorities should verify findings independently "
+        "before making resource-allocation or policy decisions.",
+        align="J",
+    )
+    pdf.ln(3)
+
+    # Branding line
+    pdf.set_font("Helvetica", "", 7)
+    pdf.set_text_color(*PRIMARY)
+    pdf.cell(
+        0, 4,
+        f"Ghana Medical Intelligence Agent  |  Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  Hack Nation",
+        align="C",
+    )
+    pdf.ln(3)
+
+    # Confidentiality notice
+    pdf.set_font("Helvetica", "B", 6)
     pdf.set_text_color(150, 150, 150)
-    pdf.cell(0, 5, "Ghana Medical Intelligence Agent - Hack Nation", align="C")
+    pdf.cell(0, 3, "CONFIDENTIAL  -  For authorized healthcare planning personnel only", align="C")
 
     return bytes(pdf.output())
 
@@ -533,6 +701,9 @@ with tab_planner:
 
     st.markdown("")  # spacer
 
+    # Initialize specialty selection variable (used later for PDF export)
+    sel_spec = None
+
     # -- Two-column layout --
     col_left, col_right = st.columns([1, 1], gap="medium")
 
@@ -652,19 +823,25 @@ with tab_planner:
     # -- PDF Report Download --
     st.markdown("")
     try:
-        _n_deserts = len(deserts_cardiology)
-    except Exception:
-        _n_deserts = 0
-    try:
         _region_stats = get_region_stats()
         _type_stats = get_facility_type_stats()
         _n_fac = int(len(df[df["organization_type"] == "facility"])) if len(df) else 0
         _n_ngo = int(len(df[df["organization_type"] == "ngo"])) if len(df) else 0
+
+        # Use the currently selected specialty for the PDF coverage section
+        _pdf_spec = sel_spec if sel_spec else "cardiology"
+        try:
+            _pdf_deserts, _pdf_covered = find_desert_regions_local(_pdf_spec)
+        except Exception:
+            _pdf_deserts, _pdf_covered = deserts_cardiology, []
+
         pdf_bytes = _generate_planning_pdf(
             total_facilities=_n_fac,
             total_ngos=_n_ngo,
             total_flagged=len(flagged),
-            cardiology_deserts=_n_deserts,
+            selected_specialty=_pdf_spec,
+            desert_regions=_pdf_deserts,
+            covered_regions=_pdf_covered,
             region_stats=_region_stats,
             type_stats=_type_stats,
             flagged_list=flagged,
