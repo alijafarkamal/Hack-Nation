@@ -84,7 +84,7 @@ def find_warehouse() -> str:
     for wh in warehouses:
         print(f"  Found: {wh.name} (id={wh.id}, state={wh.state})")
 
-    running = [wh for wh in warehouses if str(wh.state) == "RUNNING"]
+    running = [wh for wh in warehouses if "RUNNING" in str(wh.state)]
     if running:
         chosen = running[0]
     else:
@@ -93,7 +93,7 @@ def find_warehouse() -> str:
         w.warehouses.start(chosen.id)
         for _ in range(30):
             wh = w.warehouses.get(chosen.id)
-            if str(wh.state) == "RUNNING":
+            if "RUNNING" in str(wh.state):
                 break
             print(f"    state: {wh.state} — waiting...")
             time.sleep(10)

@@ -5,9 +5,15 @@ Provides:
   - vs_client: VectorSearchClient for semantic search
   - Configuration constants from .env
 
+When Databricks credentials are not configured (empty .env), the clients are
+still created but will fail at runtime when actually called. This allows the
+Streamlit frontend to start and serve the Map / Mission Planner tabs even
+without Databricks access.
+
 Ref: https://docs.databricks.com/en/dev-tools/sdk-python.html
 """
 
+import logging
 import os
 
 import mlflow
@@ -17,23 +23,50 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABRICKS_HOST = os.getenv("DATABRICKS_HOST")
-DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN")
+logger = logging.getLogger(__name__)
 
-# Point MLflow at Databricks so traces appear in the Experiments UI
-mlflow.set_tracking_uri("databricks")
-os.environ.setdefault("DATABRICKS_HOST", DATABRICKS_HOST or "")
-os.environ.setdefault("DATABRICKS_TOKEN", DATABRICKS_TOKEN or "")
-mlflow.set_experiment(os.getenv("MLFLOW_EXPERIMENT_PATH", "/Shared/ghana-medical-agent"))
+DATABRICKS_HOST = os.getenv("DATABRICKS_HOST", "")
+DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN", "")
 
-db_client = WorkspaceClient(host=DATABRICKS_HOST, token=DATABRICKS_TOKEN)
+# ── MLflow setup (best-effort) ──────────────────────────────────────────────
+# Only point MLflow at Databricks if credentials are actually set.
+# Otherwise, fall back to a local tracking directory so import doesn't crash.
+if DATABRICKS_HOST and DATABRICKS_TOKEN:
+    try:
+        mlflow.set_tracking_uri("databricks")
+        os.environ.setdefault("DATABRICKS_HOST", DATABRICKS_HOST)
+        os.environ.setdefault("DATABRICKS_TOKEN", DATABRICKS_TOKEN)
+        mlflow.set_experiment(
+            os.getenv("MLFLOW_EXPERIMENT_PATH", "/Shared/ghana-medical-agent")
+        )
+    except Exception as e:
+        logger.warning("MLflow Databricks setup failed (will use local tracking): %s", e)
+        mlflow.set_tracking_uri("mlruns")
+else:
+    logger.info(
+        "Databricks credentials not found in .env — MLflow will use local tracking. "
+        "Set DATABRICKS_HOST and DATABRICKS_TOKEN to enable the full agent pipeline."
+    )
+    mlflow.set_tracking_uri("mlruns")
 
-vs_client = VectorSearchClient(
-    workspace_url=DATABRICKS_HOST,
-    personal_access_token=DATABRICKS_TOKEN,
-    disable_notice=True,
+# ── SDK clients ──────────────────────────────────────────────────────────────
+# Created eagerly so other modules can import them at the top level.
+# Actual Databricks calls will fail gracefully at runtime if creds are empty.
+db_client = WorkspaceClient(
+    host=DATABRICKS_HOST or "https://placeholder.cloud.databricks.com",
+    token=DATABRICKS_TOKEN or "dapi_placeholder",
 )
 
+try:
+    vs_client = VectorSearchClient(
+        workspace_url=DATABRICKS_HOST or "https://placeholder.cloud.databricks.com",
+        personal_access_token=DATABRICKS_TOKEN or "dapi_placeholder",
+        disable_notice=True,
+    )
+except Exception:
+    vs_client = None  # type: ignore[assignment]
+
+# ── Configuration constants ──────────────────────────────────────────────────
 GENIE_SPACE_ID = os.getenv("GENIE_SPACE_ID")
 VS_INDEX = os.getenv("VECTOR_SEARCH_INDEX")
 VS_ENDPOINT = os.getenv("VECTOR_SEARCH_ENDPOINT")
