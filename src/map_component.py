@@ -167,11 +167,11 @@ def create_ghana_map(
             folium.Circle(
                 location=[lat, lon],
                 radius=radius_m,
-                color="red",
-                weight=2,
+                color="#e53e3e",
+                weight=1,
                 fill=True,
-                fill_color="red",
-                fill_opacity=0.15,
+                fill_color="#e53e3e",
+                fill_opacity=0.10,
                 popup=folium.Popup(
                     f"<b>Medical Desert</b><br>"
                     f"<b>Specialty:</b> {specialty}<br>"

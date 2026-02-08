@@ -596,17 +596,22 @@ with tab_map:
     # Status line — clean, no failure details
     st.caption(f"Showing **{len(with_coords)}** facilities on map")
 
-    # Desert overlay
+    # Desert overlay — only show for regions with ZERO facilities for that specialty
     desert_overlay = []
     if desert_spec != "None":
-        deserts_list, _ = find_desert_regions_local(desert_spec)
+        deserts_list, covered_list = find_desert_regions_local(desert_spec)
         for rname in deserts_list:
             center = REGION_CENTERS.get(rname)
             if center:
                 desert_overlay.append({
                     "region": rname, "lat": center[0], "lon": center[1],
-                    "specialty": desert_spec, "radius_m": 50000,
+                    "specialty": desert_spec, "radius_m": 30000,
                 })
+        if desert_overlay:
+            st.caption(
+                f"Desert overlay: **{len(deserts_list)}** of {len(deserts_list) + len(covered_list)} "
+                f"regions have no *{_humanize(desert_spec)}* facilities"
+            )
 
     # THE MAP — big and prominent
     m = create_ghana_map(
@@ -616,13 +621,13 @@ with tab_map:
     )
     st_folium(m, height=780)
 
-    # Legend bar — cluster colors + facility icons
+    # Legend bar — cluster colors + desert
     st.markdown("""
     <div class="legend-bar">
         <span style="font-weight:600; margin-right:0.5rem;">Cluster bubbles:</span>
-        <div class="legend-item"><span class="legend-dot" style="background:#e53e3e;"></span> Few facilities</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#f1c40f;"></span> Medium</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#38a169;"></span> Many facilities</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#f4a261;"></span> Small (1-9)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#adce74;"></span> Medium (10-99)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#1ea446;"></span> Large (100+)</div>
         <span style="border-left:1px solid rgba(160,174,192,0.4); height:16px; margin:0 0.5rem;"></span>
         <div class="legend-item"><span class="legend-dot" style="background:#e53e3e; opacity:0.35;"></span> Medical Desert</div>
     </div>
