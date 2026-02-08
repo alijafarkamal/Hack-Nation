@@ -19,9 +19,9 @@ class TestHaversine:
     """Test Haversine distance calculations."""
 
     def test_accra_to_kumasi(self):
-        """Haversine between Accra and Kumasi should be ~250 km."""
+        """Haversine (straight-line) between Accra and Kumasi should be ~200 km."""
         d = haversine_km(5.6037, -0.1870, 6.6885, -1.6244)
-        assert 240 < d < 260
+        assert 190 < d < 210
 
     def test_same_point_is_zero(self):
         """Distance from a point to itself should be 0."""
