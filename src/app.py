@@ -633,13 +633,19 @@ with tab_planner:
     # -- PDF Report Download --
     st.markdown("")
     try:
+        _n_deserts = len(deserts_cardiology)
+    except Exception:
+        _n_deserts = 0
+    try:
         _region_stats = get_region_stats()
         _type_stats = get_facility_type_stats()
+        _n_fac = int(len(df[df["organization_type"] == "facility"])) if len(df) else 0
+        _n_ngo = int(len(df[df["organization_type"] == "ngo"])) if len(df) else 0
         pdf_bytes = _generate_planning_pdf(
-            total_facilities=len(df[df["organization_type"] == "facility"]) if len(df) else 0,
-            total_ngos=len(df[df["organization_type"] == "ngo"]) if len(df) else 0,
+            total_facilities=_n_fac,
+            total_ngos=_n_ngo,
             total_flagged=len(flagged),
-            cardiology_deserts=len(deserts_cardiology) if "deserts_cardiology" in dir() else 0,
+            cardiology_deserts=_n_deserts,
             region_stats=_region_stats,
             type_stats=_type_stats,
             flagged_list=flagged,
@@ -651,8 +657,8 @@ with tab_planner:
             "application/pdf",
             key="dl_pdf_report",
         )
-    except Exception:
-        pass
+    except Exception as e:
+        st.caption(f"PDF report unavailable: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
