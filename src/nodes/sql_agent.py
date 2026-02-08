@@ -3,32 +3,37 @@
 Genie generates SQL, executes it against the Delta table in Unity Catalog,
 and returns structured results + natural language answer.
 
-When Genie returns only an aggregate (COUNT / SUM), the agent fires a
-follow-up Genie query *and* a Vector Search query to retrieve the individual
-facility names so the synthesis node can cite real evidence.
+When Genie returns only an aggregate (COUNT / SUM), the agent rewrites
+the SQL to SELECT actual facility rows and runs it directly via the
+Databricks SQL Warehouse — guaranteeing real facility names in evidence.
 
 Ref: https://docs.databricks.com/en/genie/
 """
 
 import logging
+import os
+import re
+
 import mlflow
 
+from src.config import db_client
 from src.state import AgentState
 from src.tools.genie_tool import query_genie
 
 log = logging.getLogger(__name__)
+
+# Columns to fetch when rewriting aggregate → detail query
+_DETAIL_COLS = "name, region_normalized, facilityTypeId, address_city"
 
 
 def _is_aggregate_only(result: dict) -> bool:
     """Return True if Genie returned only a count/aggregate, not facility rows."""
     data = result.get("data", [])
     cols = [c.lower() for c in result.get("columns", [])]
-    # Aggregate if: single row with a single numeric column, or columns are count-like
     if len(data) <= 1 and len(cols) <= 2:
         count_keywords = {"count", "cnt", "total", "sum", "avg", "min", "max"}
         if any(kw in c for c in cols for kw in count_keywords):
             return True
-        # Single numeric value
         if len(data) == 1 and len(data[0]) == 1:
             try:
                 int(data[0][0])
@@ -38,57 +43,91 @@ def _is_aggregate_only(result: dict) -> bool:
     return False
 
 
-def _vector_search_fallback(query: str) -> list[list[str]]:
-    """Use Vector Search to find matching facility names as a fallback."""
-    try:
-        from src.tools.vector_search_tool import query_vector_search
-        results = query_vector_search(query, num_results=15)
-        rows = []
-        for r in results:
-            if isinstance(r, dict):
-                rows.append([
-                    r.get("name", "Unknown"),
-                    r.get("region_normalized", "Unknown"),
-                    r.get("facilityTypeId", "Unknown"),
-                    r.get("address_city", "Unknown"),
-                ])
-        return rows
-    except Exception as e:
-        log.warning("Vector Search fallback failed: %s", e)
-        return []
+def _rewrite_count_to_select(sql: str) -> str | None:
+    """Rewrite a SELECT COUNT(*) ... query into SELECT name, region, type, city ...
+
+    Returns the rewritten SQL or None if the SQL can't be parsed.
+    """
+    if not sql:
+        return None
+    # Match: SELECT COUNT(*) ... FROM ...
+    # Replace the SELECT ... FROM with SELECT detail cols FROM, keep WHERE/etc.
+    pattern = re.compile(
+        r"SELECT\s+COUNT\s*\([^)]*\).*?FROM",
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not pattern.search(sql):
+        return None
+    rewritten = pattern.sub(f"SELECT {_DETAIL_COLS} FROM", sql, count=1)
+    # Remove any GROUP BY / ORDER BY that referenced the count
+    rewritten = re.sub(r"\bORDER\s+BY\s+.*$", "", rewritten, flags=re.IGNORECASE)
+    # Add a LIMIT to avoid huge results
+    if "LIMIT" not in rewritten.upper():
+        rewritten = rewritten.rstrip().rstrip(";") + " LIMIT 30"
+    return rewritten
+
+
+def _run_sql_direct(sql: str) -> tuple[list[list[str]], list[str]]:
+    """Execute SQL directly on Databricks SQL Warehouse and return (rows, columns)."""
+    catalog = os.getenv("DATABRICKS_CATALOG", "hack_nation")
+    schema = os.getenv("DATABRICKS_SCHEMA", "ghana_medical")
+
+    warehouses = list(db_client.warehouses.list())
+    if not warehouses:
+        return [], []
+    wh_id = warehouses[0].id
+
+    resp = db_client.statement_execution.execute_statement(
+        warehouse_id=wh_id,
+        statement=sql,
+        catalog=catalog,
+        schema=schema,
+    )
+    rows = []
+    columns = []
+    if resp.result and resp.result.data_array:
+        rows = resp.result.data_array
+    if resp.manifest and resp.manifest.schema:
+        columns = [c.name for c in resp.manifest.schema.columns]
+    return rows, columns
 
 
 @mlflow.trace(name="sql_agent_node", span_type="AGENT")
 def sql_agent_node(state: AgentState) -> dict:
     """SQL Agent — forwards query to Genie, returns structured results + citation.
 
-    If Genie returns only an aggregate count, fires a follow-up Genie query
-    to list actual facility names. If that also fails, falls back to Vector
-    Search to retrieve matching facilities.
+    If Genie returns only an aggregate count, rewrites the generated SQL
+    to fetch actual facility names/regions/types and runs it directly.
     """
     result = query_genie(state["query"])
 
-    # If we only got a count, try to get individual facility names
+    # If we only got a count, rewrite SQL to get the actual facility rows
     if _is_aggregate_only(result):
-        log.info("Aggregate-only result — fetching facility details")
+        log.info("Aggregate-only result — rewriting SQL to fetch facility details")
+        original_sql = result.get("sql", "")
+        detail_sql = _rewrite_count_to_select(original_sql)
 
-        # Strategy 1: Ask Genie to list the facilities
-        detail_query = f"List the names, regions, and types of the facilities for: {state['query']}"
-        try:
-            detail_result = query_genie(detail_query)
-            if detail_result.get("data"):
-                result["detail_data"] = detail_result["data"]
-                result["detail_columns"] = detail_result.get("columns", [])
-        except Exception as e:
-            log.warning("Follow-up Genie query failed: %s", e)
+        if detail_sql:
+            try:
+                rows, cols = _run_sql_direct(detail_sql)
+                if rows:
+                    result["detail_data"] = rows
+                    result["detail_columns"] = cols
+                    log.info("Got %d facility rows from rewritten SQL", len(rows))
+            except Exception as e:
+                log.warning("Direct SQL execution failed: %s", e)
 
-        # Strategy 2: If Genie didn't return details, use Vector Search
+        # Fallback: try Genie follow-up if SQL rewrite didn't work
         if not result.get("detail_data"):
-            log.info("Genie detail query empty — trying Vector Search fallback")
-            vs_rows = _vector_search_fallback(state["query"])
-            if vs_rows:
-                result["detail_data"] = vs_rows
-                result["detail_columns"] = ["name", "region", "type", "city"]
+            log.info("SQL rewrite didn't produce results — trying Genie follow-up")
+            try:
+                detail_query = f"List the names, regions, and types of the facilities for: {state['query']}"
+                detail_result = query_genie(detail_query)
+                if detail_result.get("data"):
+                    result["detail_data"] = detail_result["data"]
+                    result["detail_columns"] = detail_result.get("columns", [])
+            except Exception as e:
+                log.warning("Genie follow-up failed: %s", e)
 
     return {
         "sql_result": result,
