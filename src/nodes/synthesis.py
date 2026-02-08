@@ -33,6 +33,13 @@ CROSS-REFERENCING RULES:
    - Flag discrepancies between sources explicitly.
    - Combine geographic + statistical insights when both are present.
 
+EVIDENCE TABLE RULES (CRITICAL — follow strictly):
+- NEVER write "Multiple facilities" or "Various" in the Facility column.
+- List EACH facility individually by its actual name from the data.
+- If the data contains individual facility rows, list up to 15 of them.
+- If only aggregate/count data is available, show the SQL filter criteria used (e.g., facilityTypeId, specialties filter).
+- Each row must reference a REAL facility name, field name, and actual value from the data.
+
 OUTPUT FORMAT (Markdown):
 ### Answer
 [Direct answer to the user's question]
@@ -40,7 +47,8 @@ OUTPUT FORMAT (Markdown):
 ### Supporting Evidence
 | Facility | Field | Value | Confidence |
 |---|---|---|---|
-| [name] | [field] | [value] | High/Medium/Low |
+| [actual facility name] | [field] | [actual value] | High/Medium/Low |
+(List every relevant facility individually — up to 15 rows)
 
 ### Data Quality Notes
 [Any contradictions, gaps, or flags discovered during cross-referencing]
@@ -62,6 +70,13 @@ def _format_result_context(state: AgentState) -> str:
             cols = sr.get("columns", [])
             section += f"Columns: {cols}\n"
             for row in sr["data"][:20]:
+                section += f"  {row}\n"
+        # Include detailed facility list if available (from follow-up query)
+        if sr.get("detail_data"):
+            dcols = sr.get("detail_columns", [])
+            section += f"\n**Individual Facility Details:**\n"
+            section += f"Columns: {dcols}\n"
+            for row in sr["detail_data"][:30]:
                 section += f"  {row}\n"
         parts.append(section)
 
