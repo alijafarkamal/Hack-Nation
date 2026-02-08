@@ -1,12 +1,43 @@
-"""Supervisor node — classifies user intent and drives conditional routing.
+"""Supervisor node — normalizes user query, then classifies intent for routing.
 
-Uses Databricks Model Serving LLM to classify each query into one of:
-SQL, SEARCH, EXTRACT, ANOMALY, GEO.
+Two-step process:
+1. **Normalize** — Fix typos, grammar, and ambiguity so downstream agents
+   (especially Genie Text-to-SQL) receive clean, well-formed English.
+2. **Classify** — Route the cleaned query to SQL / SEARCH / EXTRACT / ANOMALY / GEO.
+
+Uses Databricks Model Serving LLM for both steps.
 """
 
 from src.state import AgentState
 from src.tools.model_serving_tool import query_llm
 
+# ── Step 1: Query normalization ──────────────────────────────────────────
+NORMALIZE_PROMPT = """You are a query normalizer for a Ghana healthcare facilities database.
+
+Your ONLY job is to rewrite the user's question into clear, grammatically correct English
+while preserving the original intent. Fix typos, abbreviations, and broken grammar.
+
+DOMAIN CONTEXT — common terms the user may misspell:
+  hospital, clinic, pharmacy, dentist, doctor, cardiology, ophthalmology,
+  gynecology, pediatrics, neurology, radiology, orthopedics, oncology,
+  dermatology, urology, anesthesia, pathology, surgery, equipment,
+  procedure, specialties, facility, region, district, Ghana, Accra,
+  Kumasi, Tamale, Korle Bu, Ashanti, Volta, Northern, Greater Accra
+
+RULES:
+- Output ONLY the rewritten question. Nothing else.
+- If the query is already correct, return it unchanged.
+- Do NOT answer the question. Just rewrite it.
+- Keep it concise — one clear sentence.
+
+Examples:
+  "how much hopital in ghana" → "How many hospitals are in Ghana?"
+  "wat servis korle bu hav" → "What services does Korle Bu Teaching Hospital offer?"
+  "cardilogy desert where" → "Where are the cardiology deserts in Ghana?"
+  "faciliteis with surgery but no equpment" → "Which facilities claim surgery but lack equipment?"
+"""
+
+# ── Step 2: Intent classification ────────────────────────────────────────
 ROUTER_PROMPT = """You classify healthcare facility questions into EXACTLY ONE category.
 
 CATEGORY DEFINITIONS (choose the BEST fit):
@@ -49,14 +80,23 @@ VALID_INTENTS = {"SQL", "SEARCH", "EXTRACT", "ANOMALY", "GEO"}
 
 
 def supervisor_node(state: AgentState) -> dict:
-    """Classify user intent using Databricks Model Serving LLM.
+    """Normalize the user query (fix typos/grammar), then classify intent.
 
-    Returns the intent label which drives conditional routing in the graph.
+    Returns the cleaned query and intent label for conditional routing.
     Defaults to SQL (Genie) for unrecognized intents.
     """
-    intent = query_llm(ROUTER_PROMPT, state["query"], max_tokens=10).strip().upper()
-    # Clean up: take only the first word in case the LLM adds extra
+    raw_query = state["query"]
+
+    # Step 1: Normalize — fix typos & grammar
+    cleaned = query_llm(NORMALIZE_PROMPT, raw_query, max_tokens=150).strip()
+    # Fallback: if normalization returns empty or something weird, keep original
+    if not cleaned or len(cleaned) > len(raw_query) * 5:
+        cleaned = raw_query
+
+    # Step 2: Classify intent on the cleaned query
+    intent = query_llm(ROUTER_PROMPT, cleaned, max_tokens=10).strip().upper()
     intent = intent.split()[0] if intent else "SQL"
     if intent not in VALID_INTENTS:
         intent = "SQL"
-    return {"intent": intent}
+
+    return {"query": cleaned, "intent": intent}

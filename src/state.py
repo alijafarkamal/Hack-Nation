@@ -10,7 +10,7 @@ class AgentState(TypedDict):
     """Shared state passed between all LangGraph nodes."""
 
     query: str
-    """Original user question."""
+    """User question (normalized by supervisor to fix typos/grammar)."""
 
     intent: Literal["SQL", "SEARCH", "EXTRACT", "ANOMALY", "GEO"]
     """Classified by the supervisor node."""
