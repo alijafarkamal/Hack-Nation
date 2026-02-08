@@ -72,6 +72,97 @@ def _spec_display_map(specs: list[str]) -> dict[str, str]:
     """Build {display_label: raw_value} mapping for specialty dropdowns."""
     return {_humanize(s): s for s in specs}
 
+
+def _generate_planning_pdf(
+    total_facilities: int,
+    total_ngos: int,
+    total_flagged: int,
+    cardiology_deserts: int,
+    region_stats: dict,
+    type_stats: dict,
+    flagged_list: list[dict],
+) -> bytes:
+    """Generate a Mission Planner PDF report and return as bytes."""
+    from fpdf import FPDF
+    from datetime import datetime
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+
+    # ── Title ──
+    pdf.set_font("Helvetica", "B", 20)
+    pdf.cell(0, 12, "Ghana Medical Intelligence Report", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(0, 6, f"Generated {datetime.now().strftime('%B %d, %Y at %H:%M')}", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(8)
+
+    # ── Summary metrics ──
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "Summary", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 11)
+    for label, val in [
+        ("Total Facilities", total_facilities),
+        ("Total NGOs", total_ngos),
+        ("Flagged Facilities", total_flagged),
+        ("Cardiology Desert Regions", cardiology_deserts),
+    ]:
+        pdf.cell(0, 7, f"  {label}: {val}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(6)
+
+    # ── Facilities by Region ──
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "Facilities by Region", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    for region, count in region_stats.items():
+        pdf.cell(90, 6, f"  {region}", new_x="RIGHT")
+        pdf.cell(0, 6, str(count), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # ── Facility Types ──
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "Facility Types", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    for ftype, count in type_stats.items():
+        pdf.cell(90, 6, f"  {ftype.title()}", new_x="RIGHT")
+        pdf.cell(0, 6, str(count), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # ── Flagged Facilities ──
+    if flagged_list:
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, "Flagged Facilities", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 8)
+        # Table header
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(60, 6, "Facility", border=1, fill=True)
+        pdf.cell(25, 6, "Type", border=1, fill=True)
+        pdf.cell(30, 6, "Region", border=1, fill=True)
+        pdf.cell(0, 6, "Issue", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+        # Rows
+        for f in flagged_list[:50]:
+            name = (f.get("name") or "—")[:30]
+            ftype = (f.get("type") or "—")[:12]
+            region = (f.get("region") or "—")[:15]
+            issue = (f.get("flags") or "—")[:55]
+            pdf.cell(60, 5, name, border=1)
+            pdf.cell(25, 5, ftype, border=1)
+            pdf.cell(30, 5, region, border=1)
+            pdf.cell(0, 5, issue, border=1, new_x="LMARGIN", new_y="NEXT")
+        if len(flagged_list) > 50:
+            pdf.set_font("Helvetica", "I", 8)
+            pdf.cell(0, 6, f"  ... and {len(flagged_list) - 50} more", new_x="LMARGIN", new_y="NEXT")
+
+    # ── Footer ──
+    pdf.ln(10)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(150, 150, 150)
+    pdf.cell(0, 5, "Ghana Medical Intelligence Agent — Hack Nation", align="C")
+
+    return pdf.output()
+
 # ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
@@ -538,6 +629,30 @@ with tab_planner:
         else:
             st.success("No flags detected.")
         st.markdown('</div>', unsafe_allow_html=True)
+
+    # -- PDF Report Download --
+    st.markdown("")
+    try:
+        _region_stats = get_region_stats()
+        _type_stats = get_facility_type_stats()
+        pdf_bytes = _generate_planning_pdf(
+            total_facilities=len(df[df["organization_type"] == "facility"]) if len(df) else 0,
+            total_ngos=len(df[df["organization_type"] == "ngo"]) if len(df) else 0,
+            total_flagged=len(flagged),
+            cardiology_deserts=len(deserts_cardiology) if "deserts_cardiology" in dir() else 0,
+            region_stats=_region_stats,
+            type_stats=_type_stats,
+            flagged_list=flagged,
+        )
+        st.download_button(
+            "Download Planning Report (PDF)",
+            pdf_bytes,
+            "ghana_medical_report.pdf",
+            "application/pdf",
+            key="dl_pdf_report",
+        )
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════

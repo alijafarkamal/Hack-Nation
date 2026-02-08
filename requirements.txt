@@ -21,5 +21,8 @@ python-dotenv==1.2.1
 # Charts (dashboard)
 plotly>=5.18.0
 
+# PDF export (planning report)
+fpdf2>=2.8.0
+
 # Testing
 pytest==9.0.2
