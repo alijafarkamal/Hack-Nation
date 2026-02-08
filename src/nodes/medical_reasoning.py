@@ -51,6 +51,5 @@ def medical_reasoning_node(state: AgentState) -> dict:
     analysis = query_llm(MEDICAL_REASONING_PROMPT, str(facilities))
     return {
         "anomaly_result": analysis,
-        "citations": state["citations"]
-        + [{"source": "medical_reasoning", "facilities_analyzed": len(facilities)}],
+        "citations": [{"source": "medical_reasoning", "facilities_analyzed": len(facilities)}],
     }

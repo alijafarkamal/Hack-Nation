@@ -156,7 +156,7 @@ def synthesis_node(state: AgentState) -> dict:
 
     return {
         "final_answer": answer,
-        "citations": state.get("citations", []) + [
+        "citations": [
             {"node": "synthesis", "agents_merged": agents_used}
         ],
     }

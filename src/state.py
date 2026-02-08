@@ -3,7 +3,8 @@
 Ref: https://langchain-ai.github.io/langgraph/concepts/low_level/#state
 """
 
-from typing import Literal, TypedDict
+import operator
+from typing import Annotated, Literal, TypedDict
 
 IntentType = Literal["SQL", "SEARCH", "EXTRACT", "ANOMALY", "GEO"]
 
@@ -39,5 +40,10 @@ class AgentState(TypedDict):
     final_answer: str | None
     """User-facing answer produced by the synthesis node."""
 
-    citations: list
-    """Audit trail — each agent appends its source info for MLflow tracing."""
+    citations: Annotated[list, operator.add]
+    """Audit trail — each agent appends its source info for MLflow tracing.
+
+    Uses operator.add reducer so parallel fan-out nodes can each append
+    their citations without triggering INVALID_CONCURRENT_GRAPH_UPDATE.
+    Ref: https://langchain-ai.github.io/langgraph/concepts/low_level/#reducers
+    """

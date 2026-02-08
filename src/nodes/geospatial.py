@@ -245,6 +245,5 @@ def geospatial_node(state: AgentState) -> dict:
 
     return {
         "geo_result": result,
-        "citations": state["citations"]
-        + [{"source": "geospatial", "query_type": query_type, "note": "local computation + Databricks SQL"}],
+        "citations": [{"source": "geospatial", "query_type": query_type, "note": "local computation + Databricks SQL"}],
     }

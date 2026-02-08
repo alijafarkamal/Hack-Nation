@@ -18,6 +18,5 @@ def sql_agent_node(state: AgentState) -> dict:
     result = query_genie(state["query"])
     return {
         "sql_result": result,
-        "citations": state["citations"]
-        + [{"source": "genie", "sql": result.get("sql"), "description": result.get("description")}],
+        "citations": [{"source": "genie", "sql": result.get("sql"), "description": result.get("description")}],
     }
