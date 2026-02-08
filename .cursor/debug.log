@@ -1,0 +1,13 @@
+{"timestamp": 1770544023164, "location": "data_loader.py:load_facilities", "message": "databricks_result", "data": {"is_none": false, "length": 987}, "hypothesisId": "B"}
+{"timestamp": 1770544023166, "location": "data_loader.py:load_facilities", "message": "DATABRICKS_pre_clean", "data": {"total": 987, "missing_region": 762}, "hypothesisId": "B"}
+{"timestamp": 1770544023197, "location": "data_loader.py:load_facilities", "message": "DATABRICKS_post_clean", "data": {"total": 987, "missing_region": 0}, "hypothesisId": "B"}
+{"timestamp": 1770544023225, "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": 987, "missing_region": 0}, "hypothesisId": "B_verify"}
+{"timestamp": 1770544039125, "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": 987, "missing_region": 0}, "hypothesisId": "B_verify"}
+{"timestamp": 1770544089827, "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": 987, "missing_region": 0}, "hypothesisId": "B_verify"}
+{"timestamp": 1770544094929, "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": 987, "missing_region": 0}, "hypothesisId": "B_verify"}
+{"timestamp": 1770544162697, "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": 987, "missing_region": 0}, "hypothesisId": "B_verify"}
+{"timestamp": 1770544307965, "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": 987, "missing_region": 0}, "hypothesisId": "B_verify"}
+{"timestamp": 1770544316672, "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": 987, "missing_region": 0}, "hypothesisId": "B_verify"}
+{"timestamp": 1770544318109, "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": 987, "missing_region": 0}, "hypothesisId": "B_verify"}
+{"timestamp": 1770544336285, "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": 987, "missing_region": 0}, "hypothesisId": "B_verify"}
+{"timestamp": 1770544364050, "location": "get_flagged", "message": "POST_FIX_CHECK", "data": {"total": 987, "missing_region": 0}, "hypothesisId": "B_verify"}
