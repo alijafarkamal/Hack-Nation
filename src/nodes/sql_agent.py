@@ -6,10 +6,13 @@ and returns structured results + natural language answer.
 Ref: https://docs.databricks.com/en/genie/
 """
 
+import mlflow
+
 from src.state import AgentState
 from src.tools.genie_tool import query_genie
 
 
+@mlflow.trace(name="sql_agent_node", span_type="AGENT")
 def sql_agent_node(state: AgentState) -> dict:
     """SQL Agent — forwards query to Genie, returns structured results + citation."""
     result = query_genie(state["query"])

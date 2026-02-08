@@ -6,11 +6,13 @@ intent classification, extraction, reasoning, and synthesis.
 Ref: https://docs.databricks.com/en/machine-learning/model-serving
 """
 
+import mlflow
 from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
 
 from src.config import LLM_ENDPOINT, db_client
 
 
+@mlflow.trace(name="query_llm", span_type="LLM")
 def query_llm(
     system_prompt: str,
     user_message: str,

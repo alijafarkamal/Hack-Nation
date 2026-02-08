@@ -4,6 +4,8 @@ Uses Databricks Model Serving LLM to classify each query into one of:
 SQL, SEARCH, EXTRACT, ANOMALY, GEO.
 """
 
+import mlflow
+
 from src.state import AgentState
 from src.tools.model_serving_tool import query_llm
 
@@ -48,6 +50,7 @@ Respond with ONLY the category name (SQL, SEARCH, EXTRACT, ANOMALY, or GEO). No 
 VALID_INTENTS = {"SQL", "SEARCH", "EXTRACT", "ANOMALY", "GEO"}
 
 
+@mlflow.trace(name="supervisor_node", span_type="AGENT")
 def supervisor_node(state: AgentState) -> dict:
     """Classify user intent using Databricks Model Serving LLM.
 

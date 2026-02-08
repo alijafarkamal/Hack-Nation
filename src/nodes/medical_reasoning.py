@@ -6,6 +6,8 @@ to detect mismatches, inflated claims, and missing basics.
 Ref: https://docs.databricks.com/en/machine-learning/model-serving
 """
 
+import mlflow
+
 from src.state import AgentState
 from src.tools.model_serving_tool import query_llm
 from src.tools.vector_search_tool import query_vector_search
@@ -39,6 +41,7 @@ For each facility, return:
 - FACILITY: Name and city"""
 
 
+@mlflow.trace(name="medical_reasoning_node", span_type="AGENT")
 def medical_reasoning_node(state: AgentState) -> dict:
     """Medical Reasoning — retrieves facilities via Vector Search, then
     uses the LLM to detect anomalies by cross-referencing procedures,

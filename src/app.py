@@ -11,6 +11,7 @@ Three tabs:
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 # Ensure project root is on sys.path so `src.*` imports work with `streamlit run`
@@ -73,13 +74,19 @@ st.markdown(
 <style>
     /* Tighter padding */
     .block-container { padding-top: 1.5rem; }
-    /* Chat messages */
-    .chat-msg-user { background: #e8f0fe; border-radius: 12px; padding: 0.8rem 1rem; margin-bottom: 0.5rem; }
-    .chat-msg-bot  { background: #f0f2f6; border-radius: 12px; padding: 0.8rem 1rem; margin-bottom: 0.5rem; }
     /* Priority badges */
     .priority-red    { color: #fff; background: #d32f2f; padding: 2px 10px; border-radius: 10px; font-size: 0.85rem; }
     .priority-yellow { color: #333; background: #ffc107; padding: 2px 10px; border-radius: 10px; font-size: 0.85rem; }
     .priority-green  { color: #fff; background: #388e3c; padding: 2px 10px; border-radius: 10px; font-size: 0.85rem; }
+    /* Metric cards */
+    [data-testid="stMetric"] {
+        background: rgba(30,30,50,0.4);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+        padding: 12px 16px;
+    }
+    /* Folium map full-bleed */
+    iframe { border-radius: 10px; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -153,15 +160,28 @@ with tab_chat:
         with st.chat_message("user"):
             st.markdown(query)
 
-        # Run agent
+        # Run agent, then stream the response
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    run_agent = _load_agent()
-                    answer = run_agent(query)
-                except Exception as e:
-                    answer = f"Something went wrong: {e}"
-            st.markdown(answer)
+            # Phase 1: show spinner while agent graph runs
+            status = st.status("Querying agent graph...", expanded=False)
+            try:
+                run_agent = _load_agent()
+                answer = run_agent(query)
+            except Exception as e:
+                answer = f"Something went wrong: {e}"
+            status.update(label="Done", state="complete", expanded=False)
+
+            # Phase 2: stream the answer word-by-word
+            def _stream_words(text: str):
+                """Yield words with small delays for a streaming effect."""
+                # Stream markdown in chunks: split by spaces but keep formatting intact
+                chunks = text.split(" ")
+                for i, word in enumerate(chunks):
+                    yield word + (" " if i < len(chunks) - 1 else "")
+                    # Fast for short words, tiny pause for readability
+                    time.sleep(0.02)
+
+            st.write_stream(_stream_words(answer))
 
         st.session_state.messages.append({"role": "assistant", "content": answer})
 
@@ -176,7 +196,8 @@ def _load_facility_data():
     try:
         facilities = run_sql(
             "SELECT unique_id, name, facilityTypeId, address_city, "
-            "region_normalized, specialties, description "
+            "region_normalized, specialties, description, "
+            "procedure, equipment, capability "
             "FROM ghana_facilities"
         )
     except Exception:
@@ -236,6 +257,118 @@ def _compute_desert_analysis(facilities_json: str, specialty: str):
         "total_deserts": len(deserts),
         "total_covered": len(covered),
     }
+
+
+# ── Procedure-Equipment dependency rules for anomaly detection ────────────
+_PROCEDURE_EQUIPMENT_DEPS = {
+    "cataract": ["microscope", "phaco", "ophthalmoscope"],
+    "mri": ["mri"],
+    "ct scan": ["ct scanner", "ct "],
+    "hemodialysis": ["dialysis"],
+    "dialysis": ["dialysis"],
+    "cesarean": ["operating", "anesthesia"],
+    "laparoscop": ["laparoscope", "insufflator"],
+    "x-ray": ["x-ray", "xray", "radiograph"],
+    "ultrasound": ["ultrasound"],
+    "icu": ["ventilator", "cardiac monitor"],
+}
+
+
+@st.cache_data(ttl=600, show_spinner="Scanning for anomalies...")
+def _compute_flagged_facilities(facilities_json: str) -> list[dict]:
+    """Detect anomalies by cross-referencing procedure, equipment, and capabilities.
+
+    Checks for:
+    1. PROCEDURE-EQUIPMENT GAP: Claims procedures but no supporting equipment
+    2. BREADTH WITHOUT DEPTH: Many specialties but zero procedures + equipment
+    3. MISSING BASICS: Hospital type but no emergency or inpatient capability
+    """
+    facilities = json.loads(facilities_json)
+    flagged = []
+
+    for f in facilities:
+        name = f.get("name") or "Unknown"
+        ftype = f.get("facilityTypeId") or "unknown"
+        city = f.get("address_city") or "—"
+
+        # Parse JSON arrays safely
+        def _parse_arr(raw):
+            if not raw or raw == "[]":
+                return []
+            try:
+                arr = json.loads(raw) if isinstance(raw, str) else (raw or [])
+                return [str(x).lower() for x in arr] if isinstance(arr, list) else []
+            except (json.JSONDecodeError, TypeError):
+                return []
+
+        procs = _parse_arr(f.get("procedure"))
+        equip = _parse_arr(f.get("equipment"))
+        caps = _parse_arr(f.get("capability"))
+        specs_raw = f.get("specialties") or "[]"
+        try:
+            specs = json.loads(specs_raw) if isinstance(specs_raw, str) else (specs_raw or [])
+        except (json.JSONDecodeError, TypeError):
+            specs = []
+
+        procs_text = " ".join(procs)
+        equip_text = " ".join(equip)
+
+        # Check 1: Procedure-Equipment dependencies
+        for proc_kw, equip_kws in _PROCEDURE_EQUIPMENT_DEPS.items():
+            if proc_kw in procs_text:
+                has_equip = any(ek in equip_text for ek in equip_kws)
+                if not has_equip and equip_text.strip():
+                    flagged.append({
+                        "name": name,
+                        "city": city,
+                        "type": ftype,
+                        "verdict": "FLAG",
+                        "reason": f"Claims '{proc_kw}' procedure but no matching equipment found",
+                        "evidence": f"Procedures mention '{proc_kw}'; equipment list has no {equip_kws[0]}",
+                    })
+                    break  # One flag per facility is enough
+                if not has_equip and not equip_text.strip():
+                    flagged.append({
+                        "name": name,
+                        "city": city,
+                        "type": ftype,
+                        "verdict": "WARNING",
+                        "reason": f"Claims '{proc_kw}' procedure but equipment list is EMPTY",
+                        "evidence": f"Procedures: {len(procs)} items; Equipment: 0 items",
+                    })
+                    break
+
+        # Check 2: Breadth Without Depth (many specialties, no procedures or equipment)
+        if len(specs) > 5 and len(procs) == 0 and len(equip) == 0:
+            already = any(fl["name"] == name for fl in flagged)
+            if not already:
+                flagged.append({
+                    "name": name,
+                    "city": city,
+                    "type": ftype,
+                    "verdict": "WARNING",
+                    "reason": f"{len(specs)} specialties listed but zero procedures and zero equipment",
+                    "evidence": f"Specialties: {len(specs)}; Procedures: 0; Equipment: 0",
+                })
+
+        # Check 3: Hospital without emergency capability
+        if ftype == "hospital" and len(caps) > 0:
+            caps_text = " ".join(caps)
+            if "emergency" not in caps_text and "inpatient" not in caps_text and "24" not in caps_text:
+                already = any(fl["name"] == name for fl in flagged)
+                if not already:
+                    flagged.append({
+                        "name": name,
+                        "city": city,
+                        "type": ftype,
+                        "verdict": "WARNING",
+                        "reason": "Hospital type but no emergency or inpatient capability mentioned",
+                        "evidence": f"Capabilities listed ({len(caps)} items) but none mention emergency/inpatient",
+                    })
+
+    # Sort: FLAGs first, then WARNINGs
+    flagged.sort(key=lambda x: (0 if x["verdict"] == "FLAG" else 1, x["name"]))
+    return flagged
 
 
 # Region center coordinates for map overlays
@@ -338,6 +471,41 @@ with tab_planner:
 
         st.divider()
 
+        # ── Flagged Facilities (anomaly detection) ──
+        st.subheader("Flagged Facilities")
+        st.markdown("*Automated data-quality checks: procedure-equipment gaps, breadth-without-depth, missing basics.*")
+
+        flagged = _compute_flagged_facilities(facilities_json)
+
+        if flagged:
+            # Summary
+            flags = sum(1 for f in flagged if f["verdict"] == "FLAG")
+            warns = sum(1 for f in flagged if f["verdict"] == "WARNING")
+            fc1, fc2 = st.columns(2)
+            fc1.metric("Data Flags", flags, help="Procedure claimed without matching equipment")
+            fc2.metric("Warnings", warns, help="Possible data quality issues")
+
+            # Show top flagged facilities (expandable)
+            for fl in flagged[:15]:
+                if fl["verdict"] == "FLAG":
+                    icon = "🔴"
+                    badge = '<span class="priority-red">FLAG</span>'
+                else:
+                    icon = "🟡"
+                    badge = '<span class="priority-yellow">WARNING</span>'
+
+                with st.expander(f"{icon} {fl['name']} ({fl['city']})"):
+                    st.markdown(
+                        f"{badge} &nbsp; **{fl['type'].title()}**",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(f"**Reason:** {fl['reason']}")
+                    st.markdown(f"**Evidence:** {fl['evidence']}")
+        else:
+            st.success("No anomalies detected in the current dataset.")
+
+        st.divider()
+
         # ── Facility type breakdown ──
         st.subheader("Facility Type Breakdown")
         import pandas as pd
@@ -431,7 +599,7 @@ with tab_map:
                 facilities=map_facilities,
                 desert_regions=desert_data,
             )
-            st_folium(m, width=None, height=550, returned_objects=[])
+            st_folium(m, width=None, height=650, returned_objects=[])
 
             st.caption(
                 f"Showing **{len(map_facilities)}** facilities"

@@ -8,11 +8,13 @@ Ref: https://docs.databricks.com/en/genie/
 
 import time
 
+import mlflow
 from databricks.sdk.service.dashboards import MessageStatus
 
 from src.config import GENIE_SPACE_ID, db_client
 
 
+@mlflow.trace(name="query_genie", span_type="TOOL")
 def query_genie(question: str, timeout_seconds: int = 60) -> dict:
     """Send natural language to Genie, get SQL + results + text answer.
 

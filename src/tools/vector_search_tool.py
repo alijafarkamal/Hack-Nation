@@ -6,6 +6,8 @@ facilities Delta table using auto-generated embeddings.
 Ref: https://docs.databricks.com/en/generative-ai/vector-search
 """
 
+import mlflow
+
 from src.config import VS_ENDPOINT, VS_INDEX, vs_client
 
 # Column list to sync back from the index
@@ -22,6 +24,7 @@ _COLUMNS = [
 ]
 
 
+@mlflow.trace(name="query_vector_search", span_type="RETRIEVER")
 def query_vector_search(
     query_text: str,
     num_results: int = 10,
