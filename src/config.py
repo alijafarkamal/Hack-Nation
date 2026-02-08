@@ -75,3 +75,6 @@ SCHEMA = os.getenv("DATABRICKS_SCHEMA")
 
 # Model Serving endpoint name
 LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "databricks-qwen3-next-80b-a3b-instruct")
+
+# OpenRouter fallback (used when Databricks Model Serving is unavailable)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
