@@ -21,6 +21,7 @@ The only manual step left after this is creating a Genie Space in the UI.
 import builtins
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -191,7 +192,7 @@ def clean_and_upload() -> str:
     print("  Regions normalized")
 
     # Save as parquet
-    parquet_path = "/tmp/ghana_facilities_clean.parquet"
+    parquet_path = os.path.join(tempfile.gettempdir(), "ghana_facilities_clean.parquet")
     df.to_parquet(parquet_path, index=False)
     print(f"  Saved clean parquet ({os.path.getsize(parquet_path) / 1024:.0f} KB)")
 
