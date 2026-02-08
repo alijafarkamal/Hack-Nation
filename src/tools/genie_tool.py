@@ -13,7 +13,7 @@ from databricks.sdk.service.dashboards import MessageStatus
 from src.config import GENIE_SPACE_ID, db_client
 
 
-def query_genie(question: str, timeout_seconds: int = 30) -> dict:
+def query_genie(question: str, timeout_seconds: int = 60) -> dict:
     """Send natural language to Genie, get SQL + results + text answer.
 
     Args:
