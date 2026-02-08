@@ -199,8 +199,11 @@ def geospatial_node(state: AgentState) -> dict:
 
     # Step 3: Radius search
     elif query_type == "radius" and city:
-        coords = _CITY_COORDS.get(city) or _CITY_COORDS.get(city.title())
-        if coords and radius_km:
+        raw_coords = _CITY_COORDS.get(city) or _CITY_COORDS.get(city.title())
+        if raw_coords and radius_km:
+            # Coords stored as [lat, lon] arrays
+            center_lat, center_lon = raw_coords[0], raw_coords[1]
+
             # Get facilities with city coords
             facilities = _run_facility_sql(
                 "SELECT name, facilityTypeId, address_city, region_normalized, specialties "
@@ -212,12 +215,12 @@ def geospatial_node(state: AgentState) -> dict:
                 fc = f.get("address_city", "")
                 c = _CITY_COORDS.get(fc) or _CITY_COORDS.get(fc.title() if fc else "")
                 if c:
-                    enriched.append({**f, "lat": c["lat"], "lon": c["lon"]})
+                    enriched.append({**f, "lat": c[0], "lon": c[1]})
 
             nearby = find_facilities_within_radius(
-                enriched, coords["lat"], coords["lon"], float(radius_km)
+                enriched, center_lat, center_lon, float(radius_km)
             )
-            result["center"] = {"city": city, **coords}
+            result["center"] = {"city": city, "lat": center_lat, "lon": center_lon}
             result["radius_km"] = radius_km
             result["facilities_found"] = len(nearby)
             result["facilities"] = nearby[:20]  # Cap at 20
