@@ -3,7 +3,8 @@
 Ref: https://langchain-ai.github.io/langgraph/concepts/low_level/#state
 """
 
-from typing import Literal, TypedDict
+import operator
+from typing import Annotated, Literal, TypedDict
 
 
 class AgentState(TypedDict):
@@ -33,5 +34,5 @@ class AgentState(TypedDict):
     final_answer: str | None
     """User-facing answer produced by the synthesis node."""
 
-    citations: list
+    citations: Annotated[list, operator.add]
     """Audit trail — each agent appends its source info for MLflow tracing."""

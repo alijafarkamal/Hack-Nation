@@ -15,6 +15,5 @@ def rag_agent_node(state: AgentState) -> dict:
     results = query_vector_search(state["query"])
     return {
         "search_result": results,
-        "citations": state["citations"]
-        + [{"source": "vector_search", "hits": len(results)}],
+        "citations": [{"source": "vector_search", "hits": len(results)}],
     }

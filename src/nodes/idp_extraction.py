@@ -60,6 +60,5 @@ def idp_extraction_node(state: AgentState) -> dict:
             "query": state["query"],
             "extractions": extractions,
         },
-        "citations": state["citations"]
-        + [{"source": "idp_extraction", "facilities_processed": len(raw_facilities)}],
+        "citations": [{"source": "idp_extraction", "facilities_processed": len(raw_facilities)}],
     }
