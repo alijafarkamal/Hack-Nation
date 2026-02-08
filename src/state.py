@@ -5,6 +5,8 @@ Ref: https://langchain-ai.github.io/langgraph/concepts/low_level/#state
 
 from typing import Literal, TypedDict
 
+IntentType = Literal["SQL", "SEARCH", "EXTRACT", "ANOMALY", "GEO"]
+
 
 class AgentState(TypedDict):
     """Shared state passed between all LangGraph nodes."""
@@ -12,8 +14,12 @@ class AgentState(TypedDict):
     query: str
     """User question (normalized by supervisor to fix typos/grammar)."""
 
-    intent: Literal["SQL", "SEARCH", "EXTRACT", "ANOMALY", "GEO"]
-    """Classified by the supervisor node."""
+    intents: list[IntentType]
+    """One or more intents classified by the supervisor.
+
+    Composite queries (e.g., "hospitals near Tamale with cardiology deserts")
+    fan-out to 2+ agents in parallel; simple queries get a single intent.
+    """
 
     sql_result: dict | None
     """Structured results from Databricks Genie (Text-to-SQL)."""

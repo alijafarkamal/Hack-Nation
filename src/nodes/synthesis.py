@@ -4,6 +4,9 @@ Cross-references structured fields (facilityTypeId, specialties) against
 extracted free-form facts to find contradictions, confirm capabilities,
 and build a complete citation-backed answer.
 
+For composite (fan-out) queries, synthesis merges results from 2+ agents
+that ran in parallel, noting which data sources contributed.
+
 This implements 'Intelligent Synthesis' (Technical Accuracy = 35% of scoring).
 """
 
@@ -25,6 +28,10 @@ CROSS-REFERENCING RULES:
    - Confirm when structured and unstructured data agree (higher confidence answer).
 2. Note data completeness: if a facility has procedures but zero equipment, say so explicitly.
 3. Every claim MUST cite the specific facility name, field, and value that supports it.
+4. When multiple data sources are provided (parallel agents), MERGE their insights:
+   - Look for agreements across sources (higher confidence).
+   - Flag discrepancies between sources explicitly.
+   - Combine geographic + statistical insights when both are present.
 
 OUTPUT FORMAT (Markdown):
 ### Answer
@@ -39,14 +46,26 @@ OUTPUT FORMAT (Markdown):
 [Any contradictions, gaps, or flags discovered during cross-referencing]
 """
 
+# Map result keys to human-readable agent names
+_AGENT_LABELS = {
+    "sql_result": "SQL/Genie",
+    "search_result": "Vector Search",
+    "extraction_result": "IDP Extraction",
+    "anomaly_result": "Anomaly Detection",
+    "geo_result": "Geospatial",
+}
+
 
 def _format_result_context(state: AgentState) -> str:
-    """Build a context string from all available agent results."""
+    """Build a context string from all available agent results.
+
+    Identifies which agents contributed (relevant for fan-out merges).
+    """
     parts = []
 
     if state.get("sql_result"):
         sr = state["sql_result"]
-        section = f"**SQL/Genie Result:**\n"
+        section = "**SQL/Genie Result:**\n"
         if sr.get("text"):
             section += f"Answer: {sr['text']}\n"
         if sr.get("sql"):
@@ -107,14 +126,44 @@ def _format_result_context(state: AgentState) -> str:
     return "\n---\n".join(parts) if parts else "No results found from any agent."
 
 
+def _active_agents(state: AgentState) -> list[str]:
+    """Return labels of agents that produced results (for citation trail)."""
+    return [
+        label
+        for key, label in _AGENT_LABELS.items()
+        if state.get(key)
+    ]
+
+
 @mlflow.trace(name="synthesis_node", span_type="CHAIN")
 def synthesis_node(state: AgentState) -> dict:
     """Synthesis node — cross-references all agent outputs and produces
-    a citation-backed answer with data quality flags."""
+    a citation-backed answer with data quality flags.
+
+    For fan-out queries, merges parallel results from multiple agents.
+    """
     context = _format_result_context(state)
     user_query = state["query"]
+    agents_used = _active_agents(state)
+
+    # Annotate which agents contributed (useful for fan-out transparency)
+    source_note = ""
+    if len(agents_used) > 1:
+        source_note = (
+            f"\n\n**Note:** This answer merges results from {len(agents_used)} "
+            f"parallel agents: {', '.join(agents_used)}.\n"
+        )
 
     prompt_input = f"User question: {user_query}\n\nAgent results:\n{context}"
     answer = query_llm(SYNTHESIS_PROMPT, prompt_input, max_tokens=2048)
 
-    return {"final_answer": answer}
+    # Append source attribution for fan-out transparency
+    if source_note:
+        answer += source_note
+
+    return {
+        "final_answer": answer,
+        "citations": state.get("citations", []) + [
+            {"node": "synthesis", "agents_merged": agents_used}
+        ],
+    }
