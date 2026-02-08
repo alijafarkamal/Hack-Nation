@@ -1,11 +1,11 @@
 """Folium map builder — renders Ghana healthcare facilities on an interactive map.
 
-Dark-themed map inspired by VFMatch globe aesthetic with:
-  - CartoDB dark_matter tiles for a space-like look
-  - Glowing CircleMarkers instead of standard icons for cleaner visuals
-  - MarkerCluster with custom dark styling
-  - Pulsing red desert overlays for medical coverage gaps
-  - Rich HTML popups with dark theme
+Creates a Folium map centered on Ghana with:
+  - Color-coded facility markers (hospital=blue, clinic=green, etc.)
+  - MarkerCluster for performance with 987+ facilities
+  - Medical desert overlay (translucent red circles for coverage gaps)
+  - Layer control to toggle facility types and desert overlay
+  - Legend showing facility type colors
 
 Used in the Streamlit app's Map tab.
 """
@@ -17,175 +17,174 @@ from folium.plugins import MarkerCluster
 GHANA_CENTER = [7.9465, -1.0232]
 GHANA_ZOOM = 7
 
-# Glow colors by facility type (bright on dark background)
-FACILITY_STYLES = {
-    "hospital": {"color": "#4fc3f7", "label": "Hospital"},      # bright blue
-    "clinic":   {"color": "#66bb6a", "label": "Clinic"},         # bright green
-    "pharmacy": {"color": "#ffa726", "label": "Pharmacy"},       # amber
-    "dentist":  {"color": "#ce93d8", "label": "Dentist"},        # light purple
-    "doctor":   {"color": "#90a4ae", "label": "Doctor"},         # blue-gray
-    "unknown":  {"color": "#78909c", "label": "Unknown"},        # gray
+# All markers use the same dark-blue color so they don't clash with
+# MarkerCluster colors (green = many facilities, red = few).
+# Facility types are distinguished by icon shape instead.
+FACILITY_COLORS = {
+    "hospital": "darkblue",
+    "clinic": "darkblue",
+    "pharmacy": "darkblue",
+    "dentist": "darkblue",
+    "doctor": "darkblue",
 }
 
-# Custom cluster icon style for dark theme
-_CLUSTER_JS = """
-function(cluster) {
-    var count = cluster.getChildCount();
-    var size = count < 20 ? 35 : count < 100 ? 45 : 55;
-    var opacity = count < 20 ? 0.7 : count < 100 ? 0.8 : 0.9;
-    return L.divIcon({
-        html: '<div style="background:rgba(0,188,212,' + opacity + ');color:#fff;border-radius:50%;width:' + size + 'px;height:' + size + 'px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;box-shadow:0 0 12px rgba(0,188,212,0.6);border:2px solid rgba(255,255,255,0.3);">' + count + '</div>',
-        className: 'custom-cluster',
-        iconSize: L.point(size, size)
-    });
+# Friendly labels
+FACILITY_LABELS = {
+    "hospital": "Hospital",
+    "clinic": "Clinic",
+    "pharmacy": "Pharmacy",
+    "dentist": "Dentist",
+    "doctor": "Doctor",
 }
-"""
+
+# Icon names for each type
+FACILITY_ICONS = {
+    "hospital": "plus-sign",
+    "clinic": "heart",
+    "pharmacy": "shopping-cart",
+    "dentist": "tooth",
+    "doctor": "user",
+}
 
 
-def _popup_html(name: str, ftype: str, city: str, region: str, color: str) -> str:
-    """Generate dark-themed popup HTML."""
-    return f"""
-    <div style="
-        background:#1a1a2e;color:#e0e0e0;padding:12px 16px;
-        border-radius:8px;min-width:220px;font-family:system-ui;
-        border-left:4px solid {color};
-    ">
-        <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:6px;">{name}</div>
-        <div style="font-size:12px;margin-bottom:3px;">
-            <span style="color:{color};font-weight:600;">{ftype.title()}</span>
-        </div>
-        <div style="font-size:11px;color:#aaa;">
-            {city} &bull; {region}
-        </div>
-    </div>
-    """
+def _build_popup_html(f: dict) -> str:
+    """Build an HTML popup for a facility marker."""
+    import json as _json
 
+    name = f.get("name", "Unknown")
+    ftype = FACILITY_LABELS.get(f.get("facilityTypeId", ""), f.get("facilityTypeId", "—"))
+    city = f.get("address_city", "—")
+    region = f.get("region_normalized", "—")
 
-def _desert_popup_html(region: str, specialty: str) -> str:
-    """Generate desert overlay popup HTML."""
-    return f"""
-    <div style="
-        background:#1a1a2e;color:#e0e0e0;padding:12px 16px;
-        border-radius:8px;min-width:200px;font-family:system-ui;
-        border-left:4px solid #ff5252;
-    ">
-        <div style="font-size:13px;font-weight:700;color:#ff5252;margin-bottom:4px;">
-            Medical Desert
-        </div>
-        <div style="font-size:12px;color:#fff;">{region}</div>
-        <div style="font-size:11px;color:#aaa;margin-top:2px;">
-            No {specialty} coverage
-        </div>
-    </div>
-    """
+    # Parse specialties for display
+    specs_raw = f.get("specialties", "[]")
+    if isinstance(specs_raw, str):
+        try:
+            specs = _json.loads(specs_raw)
+        except (ValueError, TypeError):
+            specs = []
+    elif isinstance(specs_raw, list):
+        specs = specs_raw
+    else:
+        specs = []
+
+    specs_display = ", ".join(specs[:5]) if specs else "—"
+    if len(specs) > 5:
+        specs_display += f" (+{len(specs) - 5} more)"
+
+    html = (
+        f"<div style='min-width:200px; font-family:sans-serif;'>"
+        f"<b style='font-size:14px;'>{name}</b><br>"
+        f"<span style='color:#555;'>{ftype}</span><br>"
+        f"<hr style='margin:4px 0;'>"
+        f"<b>City:</b> {city}<br>"
+        f"<b>Region:</b> {region}<br>"
+        f"<b>Specialties:</b> {specs_display}"
+        f"</div>"
+    )
+    return html
 
 
 def create_ghana_map(
     facilities: list[dict] | None = None,
     desert_regions: list[dict] | None = None,
+    use_clustering: bool = True,
 ) -> folium.Map:
-    """Create a dark-themed Folium map of Ghana with facility markers and desert overlays.
+    """Create a Folium map of Ghana with facility markers and desert overlays.
 
     Args:
         facilities: List of facility dicts with 'name', 'lat', 'lon',
-                    'facilityTypeId', 'specialties' keys.
+                    'facilityTypeId', 'specialties', etc.
         desert_regions: List of dicts with 'region', 'lat', 'lon', 'specialty'
                        for medical desert overlay circles.
+        use_clustering: If True, group nearby markers into clusters for
+                       performance (recommended for 500+ facilities).
 
     Returns:
-        folium.Map object ready to render in Streamlit.
+        folium.Map object ready to render in Streamlit via st_folium.
     """
     m = folium.Map(
         location=GHANA_CENTER,
         zoom_start=GHANA_ZOOM,
-        tiles=None,
-        control_scale=True,
+        tiles="OpenStreetMap",
     )
 
-    # Dark tile layer (hidden from layer control since it's the only base)
-    folium.TileLayer(
-        tiles="CartoDB dark_matter",
-        name="Dark Map",
-        attr="&copy; CartoDB",
-        control=False,
-    ).add_to(m)
-
-    # Add facility markers (clustered with custom dark styling)
+    # -- Facility markers --
     if facilities:
-        cluster = MarkerCluster(
-            name="Facilities",
-            icon_create_function=_CLUSTER_JS,
-        ).add_to(m)
+        if use_clustering:
+            cluster = MarkerCluster(name="Facilities", show=True)
+            for f in facilities:
+                lat = f.get("lat")
+                lon = f.get("lon")
+                if lat is None or lon is None:
+                    continue
 
-        for f in facilities:
-            lat = f.get("lat")
-            lon = f.get("lon")
-            if lat is None or lon is None:
-                continue
+                ftype = f.get("facilityTypeId", "doctor")
+                color = FACILITY_COLORS.get(ftype, "gray")
+                icon_name = FACILITY_ICONS.get(ftype, "info-sign")
+                popup_html = _build_popup_html(f)
 
-            ftype = f.get("facilityTypeId") or "unknown"
-            style = FACILITY_STYLES.get(ftype, FACILITY_STYLES["unknown"])
-            color = style["color"]
-            name = f.get("name", "Unknown")
-            city = f.get("address_city") or "—"
-            region = f.get("region_normalized") or "—"
+                folium.Marker(
+                    location=[lat, lon],
+                    popup=folium.Popup(popup_html, max_width=320),
+                    tooltip=f.get("name", ""),
+                    icon=folium.Icon(color=color, icon=icon_name),
+                ).add_to(cluster)
 
-            folium.CircleMarker(
-                location=[lat, lon],
-                radius=7,
-                color=color,
-                weight=2,
-                fill=True,
-                fill_color=color,
-                fill_opacity=0.8,
-                popup=folium.Popup(
-                    _popup_html(name, ftype, city, region, color),
-                    max_width=280,
-                ),
-                tooltip=f"{name} ({style['label']})",
-            ).add_to(cluster)
+            cluster.add_to(m)
+        else:
+            for f in facilities:
+                lat = f.get("lat")
+                lon = f.get("lon")
+                if lat is None or lon is None:
+                    continue
 
-    # Add medical desert overlay (glowing red circles)
+                ftype = f.get("facilityTypeId", "doctor")
+                color = FACILITY_COLORS.get(ftype, "gray")
+                icon_name = FACILITY_ICONS.get(ftype, "info-sign")
+                popup_html = _build_popup_html(f)
+
+                folium.Marker(
+                    location=[lat, lon],
+                    popup=folium.Popup(popup_html, max_width=320),
+                    tooltip=f.get("name", ""),
+                    icon=folium.Icon(color=color, icon=icon_name),
+                ).add_to(m)
+
+    # -- Medical desert overlay (translucent red circles) --
     if desert_regions:
-        desert_group = folium.FeatureGroup(name="Medical Deserts").add_to(m)
+        desert_group = folium.FeatureGroup(name="Medical Deserts", show=True)
         for d in desert_regions:
             lat = d.get("lat")
             lon = d.get("lon")
             if lat is None or lon is None:
                 continue
 
-            region = d.get("region", "—")
+            radius_m = d.get("radius_m", 50000)  # default 50km
             specialty = d.get("specialty", "—")
+            region = d.get("region", "—")
 
-            # Outer glow
             folium.Circle(
                 location=[lat, lon],
-                radius=65000,
-                color="#ff5252",
+                radius=radius_m,
+                color="#e53e3e",
                 weight=1,
                 fill=True,
-                fill_color="#ff5252",
-                fill_opacity=0.06,
-            ).add_to(desert_group)
-
-            # Inner ring
-            folium.Circle(
-                location=[lat, lon],
-                radius=50000,
-                color="#ff5252",
-                weight=2,
-                dash_array="8 4",
-                fill=True,
-                fill_color="#ff5252",
-                fill_opacity=0.12,
+                fill_color="#e53e3e",
+                fill_opacity=0.10,
                 popup=folium.Popup(
-                    _desert_popup_html(region, specialty),
+                    f"<b>Medical Desert</b><br>"
+                    f"<b>Specialty:</b> {specialty}<br>"
+                    f"<b>Region:</b> {region}<br>"
+                    f"No facilities offering {specialty} in this region.",
                     max_width=250,
                 ),
-                tooltip=f"Desert: {region} (no {specialty})",
+                tooltip=f"Desert: {specialty} — {region}",
             ).add_to(desert_group)
 
-    # Layer control with dark-friendly styling
-    folium.LayerControl(collapsed=False).add_to(m)
+        desert_group.add_to(m)
+
+    # NOTE: LayerControl is handled by st_folium's layer_control parameter.
+    # Adding it here would conflict with streamlit-folium.
 
     return m

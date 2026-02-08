@@ -22,6 +22,7 @@ env/
 *.swo
 *~
 .DS_Store
+__MACOSX/
 
 # Jupyter / Databricks notebooks
 .ipynb_checkpoints/
@@ -34,3 +35,7 @@ data/*.parquet
 # MLflow
 mlruns/
 mlartifacts/
+
+# OS junk
+Thumbs.db
+Desktop.ini

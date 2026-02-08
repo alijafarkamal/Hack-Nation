@@ -1,607 +1,792 @@
-"""Streamlit frontend — Medical Intelligence Agent.
+"""Streamlit frontend — Ghana Medical Intelligence Agent.
 
 Entry point: `streamlit run src/app.py`
 
 Three tabs:
   1. Ask Agent — natural language chat with the LangGraph agent
-  2. Mission Planner — planning dashboard (Core Feature #3)
-  3. Map — Folium map with facility markers + medical desert overlay
+  2. Mission Planner — planning dashboard with metrics and desert analysis
+  3. Map — full-width Folium map with filters and medical desert overlay
 """
 
 import json
 import os
+import re
 import sys
-import time
 from pathlib import Path
 
-# Ensure project root is on sys.path so `src.*` imports work with `streamlit run`
+# Ensure project root is on sys.path so `src.*` imports work regardless of cwd
 _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+import pandas as pd
+import plotly.express as px
 import streamlit as st
 from streamlit_folium import st_folium
 
+from src.data_loader import (
+    GHANA_REGIONS,
+    REGION_CENTERS,
+    find_desert_regions_local,
+    get_all_specialties,
+    get_facility_type_stats,
+    get_flagged_facilities,
+    get_region_stats,
+    load_facilities,
+    load_facilities_df,
+)
+from src.map_component import create_ghana_map
+
+# Import run_agent with graceful fallback
+_AGENT_AVAILABLE = True
+_AGENT_ERROR = ""
+_DATABRICKS_CONFIGURED = bool(
+    os.environ.get("DATABRICKS_HOST") and os.environ.get("DATABRICKS_TOKEN")
+)
+try:
+    from src.graph import run_agent
+except Exception as _import_err:
+    _AGENT_AVAILABLE = False
+    _AGENT_ERROR = str(_import_err)
+
+    def run_agent(query: str) -> str:  # type: ignore[misc]
+        return (
+            f"**Agent unavailable:** {_AGENT_ERROR}\n\n"
+            "The Map and Mission Planner tabs still work with local data."
+        )
+
 # ---------------------------------------------------------------------------
-# Page config (must be first Streamlit call)
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _humanize(camel: str) -> str:
+    """Convert camelCase specialty names to readable form.
+
+    e.g. 'gynecologyAndObstetrics' -> 'Gynecology And Obstetrics'
+    """
+    spaced = re.sub(r"([a-z])([A-Z])", r"\1 \2", camel)
+    return spaced[0].upper() + spaced[1:] if spaced else camel
+
+
+def _spec_display_map(specs: list[str]) -> dict[str, str]:
+    """Build {display_label: raw_value} mapping for specialty dropdowns."""
+    return {_humanize(s): s for s in specs}
+
+
+def _generate_planning_pdf(
+    total_facilities: int,
+    total_ngos: int,
+    total_flagged: int,
+    cardiology_deserts: int,
+    region_stats: dict,
+    type_stats: dict,
+    flagged_list: list[dict],
+) -> bytes:
+    """Generate a Mission Planner PDF report and return as bytes."""
+    from fpdf import FPDF
+    from datetime import datetime
+
+    def _safe(text: str) -> str:
+        """Replace non-latin1 characters so Helvetica can render them."""
+        return text.encode("latin-1", "replace").decode("latin-1")
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+
+    # ── Title ──
+    pdf.set_font("Helvetica", "B", 20)
+    pdf.cell(0, 12, "Ghana Medical Intelligence Report", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(0, 6, f"Generated {datetime.now().strftime('%B %d, %Y at %H:%M')}", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(8)
+
+    # ── Summary metrics ──
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "Summary", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 11)
+    for label, val in [
+        ("Total Facilities", total_facilities),
+        ("Total NGOs", total_ngos),
+        ("Flagged Facilities", total_flagged),
+        ("Cardiology Desert Regions", cardiology_deserts),
+    ]:
+        pdf.cell(0, 7, f"  {label}: {val}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(6)
+
+    # ── Facilities by Region ──
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "Facilities by Region", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    for region, count in region_stats.items():
+        pdf.cell(90, 6, f"  {_safe(str(region))}", new_x="RIGHT")
+        pdf.cell(0, 6, str(count), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # ── Facility Types ──
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "Facility Types", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    for ftype, count in type_stats.items():
+        pdf.cell(90, 6, f"  {_safe(ftype.title())}", new_x="RIGHT")
+        pdf.cell(0, 6, str(count), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # ── Flagged Facilities ──
+    if flagged_list:
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, "Flagged Facilities", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 8)
+        # Table header
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(60, 6, "Facility", border=1, fill=True)
+        pdf.cell(25, 6, "Type", border=1, fill=True)
+        pdf.cell(30, 6, "Region", border=1, fill=True)
+        pdf.cell(0, 6, "Issue", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+        # Rows
+        for f in flagged_list[:50]:
+            name = _safe((f.get("name") or "-")[:30])
+            ftype = _safe((f.get("type") or "-")[:12])
+            region = _safe((f.get("region") or "-")[:15])
+            issue = _safe((f.get("flags") or "-")[:55])
+            pdf.cell(60, 5, name, border=1)
+            pdf.cell(25, 5, ftype, border=1)
+            pdf.cell(30, 5, region, border=1)
+            pdf.cell(0, 5, issue, border=1, new_x="LMARGIN", new_y="NEXT")
+        if len(flagged_list) > 50:
+            pdf.set_font("Helvetica", "I", 8)
+            pdf.cell(0, 6, f"  ... and {len(flagged_list) - 50} more", new_x="LMARGIN", new_y="NEXT")
+
+    # ── Footer ──
+    pdf.ln(10)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(150, 150, 150)
+    pdf.cell(0, 5, "Ghana Medical Intelligence Agent - Hack Nation", align="C")
+
+    return bytes(pdf.output())
+
+# ---------------------------------------------------------------------------
+# Page config
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Medical Intelligence Agent",
+    page_title="Ghana Medical Intelligence",
     page_icon="🏥",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
 # ---------------------------------------------------------------------------
-# Lazy imports — avoid heavy SDK init until needed
+# Global CSS — HCI: clean spacing, card-based layout, no clutter
 # ---------------------------------------------------------------------------
-
-
-@st.cache_resource
-def _load_agent():
-    """Import the agent graph once and cache across reruns."""
-    from src.graph import run_agent
-
-    return run_agent
-
-
-@st.cache_resource
-def _load_geo_helpers():
-    """Import geospatial helpers once."""
-    from src.nodes.geospatial import (
-        GHANA_REGIONS,
-        _CITY_COORDS,
-        _run_facility_sql,
-        find_desert_regions,
-        haversine_km,
-    )
-
-    return _run_facility_sql, find_desert_regions, haversine_km, _CITY_COORDS, GHANA_REGIONS
-
-
-@st.cache_resource
-def _load_map_builder():
-    """Import map builder once."""
-    from src.map_component import create_ghana_map
-
-    return create_ghana_map
-
-
-# ---------------------------------------------------------------------------
-# CSS overrides for a cleaner look
-# ---------------------------------------------------------------------------
-st.markdown(
-    """
+st.markdown("""
 <style>
-    /* Tighter padding */
-    .block-container { padding-top: 1.5rem; }
-    /* Priority badges */
-    .priority-red    { color: #fff; background: #d32f2f; padding: 2px 10px; border-radius: 10px; font-size: 0.85rem; }
-    .priority-yellow { color: #333; background: #ffc107; padding: 2px 10px; border-radius: 10px; font-size: 0.85rem; }
-    .priority-green  { color: #fff; background: #388e3c; padding: 2px 10px; border-radius: 10px; font-size: 0.85rem; }
-    /* Metric cards */
-    [data-testid="stMetric"] {
-        background: rgba(30,30,50,0.4);
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 10px;
-        padding: 12px 16px;
+    /* Tighter top padding */
+    .block-container { padding-top: 1rem; padding-bottom: 0.5rem; }
+
+    /* Header bar */
+    .app-header {
+        background: linear-gradient(135deg, #1a365d 0%, #2b6cb0 100%);
+        color: white;
+        padding: 1.2rem 1.5rem;
+        border-radius: 0.75rem;
+        margin-bottom: 1rem;
     }
-    /* Folium map full-bleed */
-    iframe { border-radius: 10px; }
+    .app-header h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
+    .app-header p { margin: 0.2rem 0 0 0; opacity: 0.85; font-size: 0.85rem; }
+
+    /* Metric cards — dark-theme safe */
+    .metric-box {
+        background: rgba(160, 174, 192, 0.08);
+        border: 1px solid rgba(160, 174, 192, 0.25);
+        border-radius: 0.75rem;
+        padding: 1rem 1.2rem;
+        text-align: center;
+    }
+    .metric-box .num { font-size: 2rem; font-weight: 700; color: #63b3ed; margin: 0; }
+    .metric-box .label { font-size: 0.78rem; color: #a0aec0; text-transform: uppercase;
+                         letter-spacing: 0.05em; margin: 0; }
+
+    /* Section card — dark-theme safe */
+    .section-card {
+        background: rgba(160, 174, 192, 0.06);
+        border: 1px solid rgba(160, 174, 192, 0.2);
+        border-radius: 0.75rem;
+        padding: 1.2rem;
+        margin-bottom: 0.75rem;
+        color: inherit;
+    }
+    .section-card h4 { margin: 0 0 0.6rem 0; color: #90cdf4; font-size: 1rem; }
+
+    /* Desert / covered badges — dark-theme safe */
+    .badge-desert {
+        display: inline-block;
+        background: rgba(245, 101, 101, 0.2); color: #fc8181;
+        border: 1px solid rgba(245, 101, 101, 0.3);
+        padding: 0.25rem 0.6rem; border-radius: 1rem;
+        font-size: 0.78rem; font-weight: 600; margin: 0.15rem;
+    }
+    .badge-covered {
+        display: inline-block;
+        background: rgba(72, 187, 120, 0.2); color: #68d391;
+        border: 1px solid rgba(72, 187, 120, 0.3);
+        padding: 0.25rem 0.6rem; border-radius: 1rem;
+        font-size: 0.78rem; font-weight: 600; margin: 0.15rem;
+    }
+
+    /* Chat bubbles — dark-theme safe */
+    .chat-user {
+        background: rgba(49, 130, 206, 0.15); border-left: 3px solid #63b3ed;
+        padding: 0.75rem 1rem; border-radius: 0 0.5rem 0.5rem 0;
+        margin-bottom: 0.75rem; color: inherit;
+    }
+    .chat-agent-label {
+        background: rgba(72, 187, 120, 0.15); border-left: 3px solid #68d391;
+        padding: 0.4rem 1rem; border-radius: 0 0.5rem 0 0;
+        margin-bottom: 0; color: inherit;
+    }
+    .chat-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+                  color: #90cdf4; margin-bottom: 0.25rem; font-weight: 600; }
+
+    /* Agent answer sections — dark-theme safe */
+    .answer-card {
+        background: rgba(49, 130, 206, 0.1);
+        border: 1px solid rgba(99, 179, 237, 0.4);
+        border-radius: 0.75rem;
+        padding: 1.2rem 1.5rem;
+        margin-bottom: 0.75rem;
+        color: inherit;
+    }
+    .answer-card h3 { color: #63b3ed; font-size: 1.1rem; margin: 0 0 0.5rem 0; }
+
+    .evidence-card {
+        background: rgba(160, 174, 192, 0.08);
+        border: 1px solid rgba(160, 174, 192, 0.3);
+        border-radius: 0.75rem;
+        padding: 1rem 1.2rem;
+        margin-bottom: 0.75rem;
+        color: inherit;
+    }
+    .evidence-card h3 { color: #90cdf4; font-size: 1rem; margin: 0 0 0.5rem 0; }
+
+    .notes-card {
+        background: rgba(237, 137, 54, 0.1);
+        border: 1px solid rgba(237, 137, 54, 0.4);
+        border-radius: 0.75rem;
+        padding: 1rem 1.2rem;
+        margin-bottom: 0.75rem;
+        color: inherit;
+    }
+    .notes-card h3 { color: #fbd38d; font-size: 1rem; margin: 0 0 0.5rem 0; }
+
+    /* Map legend bar — dark-theme safe */
+    .legend-bar {
+        display: flex; gap: 1.2rem; align-items: center; justify-content: center;
+        background: rgba(160, 174, 192, 0.08); border: 1px solid rgba(160, 174, 192, 0.2);
+        border-radius: 0.5rem;
+        padding: 0.5rem 1rem; margin-top: 0.5rem; font-size: 0.82rem;
+        color: inherit;
+    }
+    .legend-item { display: flex; align-items: center; gap: 0.3rem; }
+    .legend-dot {
+        width: 12px; height: 12px; border-radius: 50%; display: inline-block;
+    }
+
+    /* Map filter bar */
+    .filter-bar {
+        background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem;
+        padding: 0.5rem 0.75rem; margin-bottom: 0.5rem;
+    }
+
+    /* Hide streamlit default footer and hamburger */
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+
+    /* Reduce tab font */
+    .stTabs [data-baseweb="tab"] { font-size: 0.9rem; }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-st.title("Medical Intelligence Agent")
-st.caption("Bridging Medical Deserts — Powered by LangGraph + Databricks + MLflow")
+st.markdown("""
+<div class="app-header">
+    <h1>Ghana Medical Intelligence Agent</h1>
+    <p>Bridging Medical Deserts &mdash; LangGraph + Databricks + MLflow</p>
+</div>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Session state defaults
+# Session state
 # ---------------------------------------------------------------------------
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "query" not in st.session_state:
+    st.session_state.query = ""
 
 # ---------------------------------------------------------------------------
-# Sidebar — example queries
+# Sidebar — minimal, just example queries
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("Example Queries")
+    st.markdown("### Try a query")
     examples = [
         "How many hospitals have cardiology?",
         "What services does Korle Bu Teaching Hospital offer?",
+        "Extract capabilities for Tamale Teaching Hospital",
         "Which facilities claim surgery but lack equipment?",
         "Where are ophthalmology deserts in Ghana?",
-        "Hospitals treating malaria within 50km of Tamale?",
     ]
     for ex in examples:
-        if st.button(ex, key=f"ex_{ex}"):
-            st.session_state["pending_query"] = ex
-            st.rerun()
-
-    st.divider()
-    st.markdown("**Tech Stack**")
-    st.markdown(
-        "- LangGraph 1.0\n"
-        "- Databricks Free Edition\n"
-        "- Qwen3 Next 80B\n"
-        "- MLflow 3.x\n"
-        "- Streamlit + Folium"
-    )
+        if st.button(ex, key=f"sidebar_{ex}"):
+            st.session_state.query = ex
 
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
 tab_chat, tab_planner, tab_map = st.tabs(
-    ["💬 Ask Agent", "📋 Mission Planner", "🗺️ Map"]
+    ["💬  Ask Agent", "📋  Mission Planner", "🗺️  Map"]
 )
 
+
 # ═══════════════════════════════════════════════════════════════════════════
-# Tab 1: Ask Agent (Chat)
+# Helper: render agent output with styled sections
+# ═══════════════════════════════════════════════════════════════════════════
+import re
+
+
+def _render_agent_output(content: str):
+    """Parse agent markdown into styled cards for Answer / Evidence / Notes."""
+    # Split by markdown headings (## or ###)
+    sections = re.split(r'\n(?=#{1,3}\s)', content)
+
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+
+        # Detect section type by heading
+        lower = section.lower()
+        if lower.startswith(("## answer", "### answer", "# answer")):
+            # Extract text after heading
+            body = re.sub(r'^#{1,3}\s*[Aa]nswer\s*\n?', '', section).strip()
+            st.markdown('<div class="answer-card"><h3>Answer</h3>', unsafe_allow_html=True)
+            st.markdown(body)
+            st.markdown('</div>', unsafe_allow_html=True)
+        elif "supporting evidence" in lower[:50] or "evidence" in lower[:30]:
+            body = re.sub(r'^#{1,3}\s*.*?\n', '', section, count=1).strip()
+            st.markdown('<div class="evidence-card"><h3>Supporting Evidence</h3>', unsafe_allow_html=True)
+            st.markdown(body)
+            st.markdown('</div>', unsafe_allow_html=True)
+        elif "data quality" in lower[:40] or "quality notes" in lower[:40] or "notes" in lower[:20]:
+            body = re.sub(r'^#{1,3}\s*.*?\n', '', section, count=1).strip()
+            st.markdown('<div class="notes-card"><h3>Data Quality Notes</h3>', unsafe_allow_html=True)
+            st.markdown(body)
+            st.markdown('</div>', unsafe_allow_html=True)
+        elif section.startswith("#"):
+            # Other heading section — generic card
+            heading = re.match(r'^#{1,3}\s*(.*)', section)
+            title = heading.group(1) if heading else "Details"
+            body = re.sub(r'^#{1,3}\s*.*?\n', '', section, count=1).strip()
+            st.markdown(f'<div class="evidence-card"><h3>{title}</h3>', unsafe_allow_html=True)
+            st.markdown(body)
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            # No heading — render as answer card if it's the first section
+            st.markdown('<div class="answer-card"><h3>Answer</h3>', unsafe_allow_html=True)
+            st.markdown(section)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Tab 1: Ask Agent
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_chat:
-    # Render chat history
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
 
-    # Check for pending query from sidebar example button
-    pending = st.session_state.pop("pending_query", None)
+    if not _AGENT_AVAILABLE:
+        st.error(f"Agent could not load: {_AGENT_ERROR}")
+    elif not _DATABRICKS_CONFIGURED:
+        st.warning("Databricks credentials missing. Add them to `.env` to enable the agent.")
 
-    # Chat input
-    user_input = st.chat_input("Ask about healthcare facilities in Ghana...")
+    # Display chat history with styled cards
+    for msg in st.session_state.chat_history:
+        if msg["role"] == "user":
+            st.markdown(
+                f'<div class="chat-user">'
+                f'<div class="chat-label">You</div>'
+                f'{msg["content"]}</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="chat-agent-label">'
+                '<div class="chat-label">Agent</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            _render_agent_output(msg["content"])
 
-    query = pending or user_input
-    if query:
-        # Show user message
-        st.session_state.messages.append({"role": "user", "content": query})
-        with st.chat_message("user"):
-            st.markdown(query)
+    # Input form
+    with st.form("chat_form", clear_on_submit=True):
+        default_val = ""
+        if st.session_state.query and st.session_state.query not in [
+            m["content"] for m in st.session_state.chat_history if m["role"] == "user"
+        ]:
+            default_val = st.session_state.query
 
-        # Run agent, then stream the response
-        with st.chat_message("assistant"):
-            # Phase 1: show spinner while agent graph runs
-            status = st.status("Querying agent graph...", expanded=False)
-            try:
-                run_agent = _load_agent()
-                answer = run_agent(query)
-            except Exception as e:
-                answer = f"Something went wrong: {e}"
-            status.update(label="Done", state="complete", expanded=False)
-
-            # Phase 2: stream the answer word-by-word
-            def _stream_words(text: str):
-                """Yield words with small delays for a streaming effect."""
-                # Stream markdown in chunks: split by spaces but keep formatting intact
-                chunks = text.split(" ")
-                for i, word in enumerate(chunks):
-                    yield word + (" " if i < len(chunks) - 1 else "")
-                    # Fast for short words, tiny pause for readability
-                    time.sleep(0.02)
-
-            st.write_stream(_stream_words(answer))
-
-        st.session_state.messages.append({"role": "assistant", "content": answer})
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Helper: load facility data (cached for the session)
-# ═══════════════════════════════════════════════════════════════════════════
-@st.cache_data(ttl=600, show_spinner="Loading facility data from Databricks...")
-def _load_facility_data():
-    """Pull facility data from Databricks for the planner and map."""
-    run_sql, _, _, _, _ = _load_geo_helpers()
-    try:
-        facilities = run_sql(
-            "SELECT unique_id, name, facilityTypeId, address_city, "
-            "region_normalized, specialties, description, "
-            "procedure, equipment, capability "
-            "FROM ghana_facilities"
+        user_input = st.text_input(
+            "Ask about Ghana healthcare:",
+            value=default_val,
+            placeholder="e.g. How many hospitals have cardiology?",
+            label_visibility="collapsed",
         )
-    except Exception:
-        facilities = []
-    return facilities
+        c1, c2, c3 = st.columns([4, 1, 1])
+        submitted = c1.form_submit_button("Ask Agent", type="primary")
+        cleared = c3.form_submit_button("Clear")
 
+    if cleared:
+        st.session_state.chat_history = []
+        st.session_state.query = ""
+        st.rerun()
 
-@st.cache_data(ttl=600, show_spinner="Computing summary metrics...")
-def _compute_summary(facilities_json: str):
-    """Compute summary cards from facility data."""
-    facilities = json.loads(facilities_json)
-    total = len(facilities)
+    if submitted and user_input:
+        st.session_state.query = ""
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
 
-    # Count by type
-    type_counts = {}
-    for f in facilities:
-        t = f.get("facilityTypeId") or "unknown"
-        type_counts[t] = type_counts.get(t, 0) + 1
-
-    # Count distinct regions
-    regions = {f.get("region_normalized") for f in facilities if f.get("region_normalized")}
-
-    return {
-        "total_facilities": total,
-        "hospitals": type_counts.get("hospital", 0),
-        "clinics": type_counts.get("clinic", 0),
-        "regions_covered": len(regions),
-        "type_counts": type_counts,
-    }
-
-
-@st.cache_data(ttl=600, show_spinner="Analyzing specialty coverage...")
-def _compute_desert_analysis(facilities_json: str, specialty: str):
-    """Compute desert regions for a given specialty."""
-    facilities = json.loads(facilities_json)
-    _, find_deserts, haversine, city_coords, all_regions = _load_geo_helpers()
-
-    deserts = find_deserts(facilities, specialty)
-
-    # For covered regions, count how many facilities have it
-    covered = {}
-    for f in facilities:
-        region = f.get("region_normalized")
-        if not region:
-            continue
-        specs_raw = f.get("specialties") or "[]"
-        try:
-            specs = json.loads(specs_raw) if isinstance(specs_raw, str) else (specs_raw or [])
-        except (json.JSONDecodeError, TypeError):
-            specs = []
-        if specs and specialty in specs:
-            covered[region] = covered.get(region, 0) + 1
-
-    return {
-        "desert_regions": deserts,
-        "covered_regions": dict(sorted(covered.items(), key=lambda x: x[1])),
-        "total_deserts": len(deserts),
-        "total_covered": len(covered),
-    }
-
-
-# ── Procedure-Equipment dependency rules for anomaly detection ────────────
-_PROCEDURE_EQUIPMENT_DEPS = {
-    "cataract": ["microscope", "phaco", "ophthalmoscope"],
-    "mri": ["mri"],
-    "ct scan": ["ct scanner", "ct "],
-    "hemodialysis": ["dialysis"],
-    "dialysis": ["dialysis"],
-    "cesarean": ["operating", "anesthesia"],
-    "laparoscop": ["laparoscope", "insufflator"],
-    "x-ray": ["x-ray", "xray", "radiograph"],
-    "ultrasound": ["ultrasound"],
-    "icu": ["ventilator", "cardiac monitor"],
-}
-
-
-@st.cache_data(ttl=600, show_spinner="Scanning for anomalies...")
-def _compute_flagged_facilities(facilities_json: str) -> list[dict]:
-    """Detect anomalies by cross-referencing procedure, equipment, and capabilities.
-
-    Checks for:
-    1. PROCEDURE-EQUIPMENT GAP: Claims procedures but no supporting equipment
-    2. BREADTH WITHOUT DEPTH: Many specialties but zero procedures + equipment
-    3. MISSING BASICS: Hospital type but no emergency or inpatient capability
-    """
-    facilities = json.loads(facilities_json)
-    flagged = []
-
-    for f in facilities:
-        name = f.get("name") or "Unknown"
-        ftype = f.get("facilityTypeId") or "unknown"
-        city = f.get("address_city") or "—"
-
-        # Parse JSON arrays safely
-        def _parse_arr(raw):
-            if not raw or raw == "[]":
-                return []
+        with st.spinner("Thinking..."):
             try:
-                arr = json.loads(raw) if isinstance(raw, str) else (raw or [])
-                return [str(x).lower() for x in arr] if isinstance(arr, list) else []
-            except (json.JSONDecodeError, TypeError):
-                return []
+                answer = run_agent(user_input)
+                st.session_state.chat_history.append(
+                    {"role": "assistant", "content": answer}
+                )
+            except Exception as e:
+                error_msg = str(e)
+                if "timeout" in error_msg.lower():
+                    err = "Query timed out. Try again or simplify your question."
+                elif "quota" in error_msg.lower() or "rate" in error_msg.lower():
+                    err = "Rate limit hit. Wait a minute and retry."
+                else:
+                    err = f"Error: {error_msg}"
+                st.session_state.chat_history.append(
+                    {"role": "assistant", "content": err}
+                )
+        st.rerun()
 
-        procs = _parse_arr(f.get("procedure"))
-        equip = _parse_arr(f.get("equipment"))
-        caps = _parse_arr(f.get("capability"))
-        specs_raw = f.get("specialties") or "[]"
-        try:
-            specs = json.loads(specs_raw) if isinstance(specs_raw, str) else (specs_raw or [])
-        except (json.JSONDecodeError, TypeError):
-            specs = []
-
-        procs_text = " ".join(procs)
-        equip_text = " ".join(equip)
-
-        # Check 1: Procedure-Equipment dependencies
-        for proc_kw, equip_kws in _PROCEDURE_EQUIPMENT_DEPS.items():
-            if proc_kw in procs_text:
-                has_equip = any(ek in equip_text for ek in equip_kws)
-                if not has_equip and equip_text.strip():
-                    flagged.append({
-                        "name": name,
-                        "city": city,
-                        "type": ftype,
-                        "verdict": "FLAG",
-                        "reason": f"Claims '{proc_kw}' procedure but no matching equipment found",
-                        "evidence": f"Procedures mention '{proc_kw}'; equipment list has no {equip_kws[0]}",
-                    })
-                    break  # One flag per facility is enough
-                if not has_equip and not equip_text.strip():
-                    flagged.append({
-                        "name": name,
-                        "city": city,
-                        "type": ftype,
-                        "verdict": "WARNING",
-                        "reason": f"Claims '{proc_kw}' procedure but equipment list is EMPTY",
-                        "evidence": f"Procedures: {len(procs)} items; Equipment: 0 items",
-                    })
-                    break
-
-        # Check 2: Breadth Without Depth (many specialties, no procedures or equipment)
-        if len(specs) > 5 and len(procs) == 0 and len(equip) == 0:
-            already = any(fl["name"] == name for fl in flagged)
-            if not already:
-                flagged.append({
-                    "name": name,
-                    "city": city,
-                    "type": ftype,
-                    "verdict": "WARNING",
-                    "reason": f"{len(specs)} specialties listed but zero procedures and zero equipment",
-                    "evidence": f"Specialties: {len(specs)}; Procedures: 0; Equipment: 0",
-                })
-
-        # Check 3: Hospital without emergency capability
-        if ftype == "hospital" and len(caps) > 0:
-            caps_text = " ".join(caps)
-            if "emergency" not in caps_text and "inpatient" not in caps_text and "24" not in caps_text:
-                already = any(fl["name"] == name for fl in flagged)
-                if not already:
-                    flagged.append({
-                        "name": name,
-                        "city": city,
-                        "type": ftype,
-                        "verdict": "WARNING",
-                        "reason": "Hospital type but no emergency or inpatient capability mentioned",
-                        "evidence": f"Capabilities listed ({len(caps)} items) but none mention emergency/inpatient",
-                    })
-
-    # Sort: FLAGs first, then WARNINGs
-    flagged.sort(key=lambda x: (0 if x["verdict"] == "FLAG" else 1, x["name"]))
-    return flagged
-
-
-# Region center coordinates for map overlays
-REGION_COORDS = {
-    "Greater Accra": [5.6037, -0.1870],
-    "Ashanti": [6.7470, -1.5209],
-    "Western": [5.3960, -2.1500],
-    "Central": [5.4000, -1.2000],
-    "Eastern": [6.2500, -0.5000],
-    "Volta": [6.6000, 0.4500],
-    "Northern": [9.5000, -1.0000],
-    "Upper East": [10.7000, -0.8500],
-    "Upper West": [10.2500, -2.1000],
-    "Bono": [7.5000, -2.3000],
-    "Bono East": [7.7500, -1.6000],
-    "Ahafo": [7.0000, -2.3500],
-    "Savannah": [9.0000, -1.8000],
-    "North East": [10.5000, -0.3500],
-    "Oti": [7.8000, 0.3000],
-    "Western North": [6.3000, -2.5000],
-}
+    # Empty state
+    if not st.session_state.chat_history:
+        st.markdown(
+            '<div style="text-align:center; padding:3rem 0; color:#a0aec0;">'
+            '<p style="font-size:2.5rem; margin:0;">💬</p>'
+            '<p>Ask a question about Ghana healthcare facilities</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Tab 2: Mission Planner
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_planner:
-    st.subheader("Mission Planner")
-    st.markdown("*Point-and-click planning dashboard for resource allocation decisions.*")
 
-    facilities = _load_facility_data()
-    if not facilities:
-        st.warning("Could not load facility data from Databricks. Check your credentials.")
-    else:
-        facilities_json = json.dumps(facilities)
-        summary = _compute_summary(facilities_json)
+    # -- Metrics row --
+    try:
+        df = load_facilities_df()
+        facilities_only = df[df["organization_type"] == "facility"]
+        ngos_only = df[df["organization_type"] == "ngo"]
+        flagged = get_flagged_facilities()
+        deserts_cardiology, _ = find_desert_regions_local("cardiology")
 
-        # ── Summary cards ──
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Facilities", summary["total_facilities"])
-        c2.metric("Hospitals", summary["hospitals"])
-        c3.metric("Clinics", summary["clinics"])
-        c4.metric("Regions Covered", summary["regions_covered"])
+        m1, m2, m3, m4 = st.columns(4)
+        for col, num, label in [
+            (m1, len(facilities_only), "Facilities"),
+            (m2, len(ngos_only), "NGOs"),
+            (m3, len(flagged), "Flagged"),
+            (m4, len(deserts_cardiology), "Cardiology Deserts"),
+        ]:
+            col.markdown(
+                f'<div class="metric-box">'
+                f'<p class="num">{num}</p>'
+                f'<p class="label">{label}</p>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+    except Exception as e:
+        st.warning(f"Could not load metrics: {e}")
+        df = pd.DataFrame()
+        flagged = []
 
-        st.divider()
+    st.markdown("")  # spacer
 
-        # ── Where to Deploy Next ──
-        st.subheader("Where to Deploy Next")
+    # -- Two-column layout --
+    col_left, col_right = st.columns([1, 1], gap="medium")
 
-        key_specialties = [
-            "generalSurgery", "emergencyMedicine", "ophthalmology",
-            "cardiology", "pediatrics", "orthopedics", "radiology",
-            "familyMedicine", "obstetrics", "oncology",
-        ]
-        selected_specialty = st.selectbox(
-            "Select a specialty to analyze coverage gaps:",
-            key_specialties,
-            index=2,  # default: ophthalmology
-        )
+    # LEFT: Desert analysis
+    with col_left:
+        st.markdown('<div class="section-card"><h4>Medical Desert Finder</h4>', unsafe_allow_html=True)
+        try:
+            all_specs = get_all_specialties()
+            priority = ["cardiology", "ophthalmology", "generalSurgery", "pediatrics",
+                        "emergencyMedicine", "gynecologyAndObstetrics", "orthopedicSurgery",
+                        "internalMedicine", "radiology", "nephrology"]
+            ordered = [s for s in priority if s in all_specs] + [s for s in all_specs if s not in priority]
+            spec_labels = [_humanize(s) for s in ordered]
 
-        analysis = _compute_desert_analysis(facilities_json, selected_specialty)
+            sel_label = st.selectbox("Specialty", spec_labels, key="planner_spec")
+            sel_spec = ordered[spec_labels.index(sel_label)] if sel_label else None
 
-        # Show desert count
-        col_d, col_c = st.columns(2)
-        col_d.metric(
-            f"Desert Regions (no {selected_specialty})",
-            analysis["total_deserts"],
-            delta=None,
-        )
-        col_c.metric(
-            f"Covered Regions",
-            analysis["total_covered"],
-        )
+            if sel_spec:
+                deserts, covered = find_desert_regions_local(sel_spec)
 
-        # Priority list
-        if analysis["desert_regions"]:
-            st.markdown("#### Priority Deployment Zones")
-            for i, region in enumerate(analysis["desert_regions"], 1):
-                if i <= 3:
-                    badge = '<span class="priority-red">CRITICAL</span>'
-                elif i <= 6:
-                    badge = '<span class="priority-yellow">HIGH</span>'
+                if deserts:
+                    st.markdown(f"**No coverage** ({len(deserts)} regions):")
+                    badges = " ".join(f'<span class="badge-desert">{r}</span>' for r in deserts)
+                    st.markdown(badges, unsafe_allow_html=True)
                 else:
-                    badge = '<span class="priority-yellow">MODERATE</span>'
-                st.markdown(
-                    f"{badge} &nbsp; **{region}** — 0 facilities with {selected_specialty}",
-                    unsafe_allow_html=True,
+                    st.success("All regions covered!")
+
+                if covered:
+                    st.markdown(f"**Has coverage** ({len(covered)} regions):")
+                    badges = " ".join(f'<span class="badge-covered">{r}</span>' for r in covered)
+                    st.markdown(badges, unsafe_allow_html=True)
+        except Exception as e:
+            st.warning(f"Error: {e}")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # RIGHT: Charts
+    with col_right:
+        st.markdown('<div class="section-card"><h4>Facilities by Region</h4>', unsafe_allow_html=True)
+        try:
+            region_stats = get_region_stats()
+            if region_stats:
+                counts = list(region_stats.values())
+                regions = list(region_stats.keys())
+                fig = px.bar(
+                    x=counts,
+                    y=regions,
+                    orientation="h",
+                    labels={"x": "Facility Count", "y": ""},
+                    color=counts,
+                    color_continuous_scale=[[0, "#e53e3e"], [0.5, "#ecc94b"], [1, "#38a169"]],
                 )
-        else:
-            st.success(f"All regions in the dataset have at least one {selected_specialty} facility.")
-
-        # Covered regions table
-        if analysis["covered_regions"]:
-            st.markdown("#### Covered Regions")
-            for region, count in analysis["covered_regions"].items():
-                st.markdown(
-                    f'<span class="priority-green">COVERED</span> &nbsp; **{region}** — {count} facility(ies)',
-                    unsafe_allow_html=True,
+                fig.update_layout(
+                    showlegend=False, height=350,
+                    margin=dict(l=0, r=20, t=5, b=5),
+                    coloraxis_showscale=False,
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    xaxis=dict(title_font_size=12, gridcolor="rgba(160,174,192,0.15)"),
+                    yaxis=dict(title_font_size=12),
+                    font=dict(size=11),
                 )
+                st.plotly_chart(fig)
+        except Exception:
+            pass
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        st.divider()
+    # -- Type breakdown + flagged in two columns --
+    col_type, col_flagged = st.columns([1, 2], gap="medium")
 
-        # ── Flagged Facilities (anomaly detection) ──
-        st.subheader("Flagged Facilities")
-        st.markdown("*Automated data-quality checks: procedure-equipment gaps, breadth-without-depth, missing basics.*")
+    with col_type:
+        st.markdown('<div class="section-card"><h4>Facility Types</h4>', unsafe_allow_html=True)
+        try:
+            type_stats = get_facility_type_stats()
+            if type_stats:
+                fig2 = px.pie(
+                    values=list(type_stats.values()),
+                    names=[k.title() for k in type_stats.keys()],
+                    hole=0.45,
+                    color_discrete_sequence=["#e53e3e", "#38a169", "#ecc94b", "#805ad5", "#a0aec0"],
+                )
+                fig2.update_traces(
+                    textposition="inside",
+                    textinfo="percent+label",
+                )
+                fig2.update_layout(
+                    height=250, margin=dict(l=0, r=0, t=5, b=5),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    uniformtext_minsize=10, uniformtext_mode="hide",
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+                )
+                st.plotly_chart(fig2)
+        except Exception:
+            pass
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        flagged = _compute_flagged_facilities(facilities_json)
-
+    with col_flagged:
+        st.markdown('<div class="section-card"><h4>Flagged Facilities</h4>', unsafe_allow_html=True)
         if flagged:
-            # Summary
-            flags = sum(1 for f in flagged if f["verdict"] == "FLAG")
-            warns = sum(1 for f in flagged if f["verdict"] == "WARNING")
-            fc1, fc2 = st.columns(2)
-            fc1.metric("Data Flags", flags, help="Procedure claimed without matching equipment")
-            fc2.metric("Warnings", warns, help="Possible data quality issues")
-
-            # Show top flagged facilities (expandable)
-            for fl in flagged[:15]:
-                if fl["verdict"] == "FLAG":
-                    icon = "🔴"
-                    badge = '<span class="priority-red">FLAG</span>'
-                else:
-                    icon = "🟡"
-                    badge = '<span class="priority-yellow">WARNING</span>'
-
-                with st.expander(f"{icon} {fl['name']} ({fl['city']})"):
-                    st.markdown(
-                        f"{badge} &nbsp; **{fl['type'].title()}**",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown(f"**Reason:** {fl['reason']}")
-                    st.markdown(f"**Evidence:** {fl['evidence']}")
+            flagged_df = pd.DataFrame(flagged).rename(columns={
+                "name": "Facility", "type": "Type", "city": "City",
+                "region": "Region", "flags": "Issue",
+            })[["Facility", "Type", "Region", "Issue"]]
+            flagged_df.index = range(1, len(flagged_df) + 1)
+            flagged_df.index.name = "#"
+            st.dataframe(flagged_df, height=250)
+            st.download_button(
+                "Download flagged facilities (CSV)",
+                flagged_df.to_csv().encode("utf-8"),
+                "flagged_facilities.csv",
+                "text/csv",
+                key="dl_flagged",
+            )
         else:
-            st.success("No anomalies detected in the current dataset.")
+            st.success("No flags detected.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        st.divider()
-
-        # ── Facility type breakdown ──
-        st.subheader("Facility Type Breakdown")
-        import pandas as pd
-
-        type_df = pd.DataFrame(
-            [{"Type": k, "Count": v} for k, v in sorted(summary["type_counts"].items(), key=lambda x: -x[1])]
+    # -- PDF Report Download --
+    st.markdown("")
+    try:
+        _n_deserts = len(deserts_cardiology)
+    except Exception:
+        _n_deserts = 0
+    try:
+        _region_stats = get_region_stats()
+        _type_stats = get_facility_type_stats()
+        _n_fac = int(len(df[df["organization_type"] == "facility"])) if len(df) else 0
+        _n_ngo = int(len(df[df["organization_type"] == "ngo"])) if len(df) else 0
+        pdf_bytes = _generate_planning_pdf(
+            total_facilities=_n_fac,
+            total_ngos=_n_ngo,
+            total_flagged=len(flagged),
+            cardiology_deserts=_n_deserts,
+            region_stats=_region_stats,
+            type_stats=_type_stats,
+            flagged_list=flagged,
         )
-        st.bar_chart(type_df.set_index("Type"))
-
-        # ── Export ──
-        st.divider()
-        csv_data = pd.DataFrame(facilities).to_csv(index=False)
         st.download_button(
-            "📥 Export Facility Data (CSV)",
-            data=csv_data,
-            file_name="ghana_facilities_export.csv",
-            mime="text/csv",
+            "Download Planning Report (PDF)",
+            pdf_bytes,
+            "ghana_medical_report.pdf",
+            "application/pdf",
+            key="dl_pdf_report",
         )
+    except Exception as e:
+        st.caption(f"PDF report unavailable: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Tab 3: Map
+# Tab 3: Map — big, prominent, map-first
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_map:
-    st.subheader("Facility Map")
 
-    facilities = _load_facility_data()
-    if not facilities:
-        st.warning("Could not load facility data. Check Databricks credentials.")
-    else:
-        _, find_deserts, _, city_coords, _ = _load_geo_helpers()
-        create_map = _load_map_builder()
+    try:
+        all_facilities = load_facilities()
+    except Exception as e:
+        st.error(f"Could not load facilities: {e}")
+        all_facilities = []
 
-        # Sidebar-like controls within the tab
-        map_col_ctrl, map_col_view = st.columns([1, 3])
+    # Build filter options
+    all_regions_in_data = sorted({
+        f.get("region_normalized") for f in all_facilities
+        if f.get("region_normalized") and f["region_normalized"] in GHANA_REGIONS
+    })
+    all_types_in_data = sorted({
+        f.get("facilityTypeId") for f in all_facilities if f.get("facilityTypeId")
+    })
+    try:
+        spec_options = get_all_specialties()
+    except Exception:
+        spec_options = []
+    _spec_map = _spec_display_map(spec_options)
+    _spec_labels = list(_spec_map.keys())
 
-        with map_col_ctrl:
-            st.markdown("**Map Controls**")
+    # Compact filter bar
+    f1, f2, f3, f4 = st.columns(4)
+    sel_region = f1.selectbox("Region", ["All"] + all_regions_in_data, key="map_region")
+    sel_type = f2.selectbox("Type", ["All"] + all_types_in_data, key="map_type")
+    _sel_spec_label = f3.selectbox("Specialty", ["All"] + _spec_labels, key="map_spec_f")
+    sel_spec_f = _spec_map.get(_sel_spec_label, _sel_spec_label)  # map display->raw
+    _sel_desert_label = f4.selectbox("Desert overlay", ["None"] + _spec_labels, key="map_desert")
+    desert_spec = _spec_map.get(_sel_desert_label, _sel_desert_label)  # map display->raw
 
-            # Specialty filter for desert overlay
-            desert_specialty = st.selectbox(
-                "Desert overlay specialty:",
-                ["ophthalmology", "cardiology", "generalSurgery",
-                 "emergencyMedicine", "pediatrics", "orthopedics"],
-                key="map_desert_specialty",
-            )
+    # Apply filters
+    filtered = all_facilities
+    if sel_region != "All":
+        filtered = [f for f in filtered if f.get("region_normalized") == sel_region]
+    if sel_type != "All":
+        filtered = [f for f in filtered if f.get("facilityTypeId") == sel_type]
+    if sel_spec_f != "All":
+        def _has_spec(fac, spec):
+            raw = fac.get("specialties", "[]")
+            try:
+                sl = json.loads(raw) if isinstance(raw, str) else (raw if isinstance(raw, list) else [])
+            except (ValueError, TypeError):
+                sl = []
+            return spec in sl
+        filtered = [f for f in filtered if _has_spec(f, sel_spec_f)]
 
-            # Facility type filter
-            all_types = sorted({f.get("facilityTypeId") or "unknown" for f in facilities})
-            selected_types = st.multiselect(
-                "Show facility types:",
-                all_types,
-                default=all_types,
-                key="map_types",
-            )
+    with_coords = [f for f in filtered if f.get("lat") is not None and f.get("lon") is not None]
 
-            show_deserts = st.checkbox("Show medical desert overlay", value=True)
+    # Status line — clean, no failure details
+    st.caption(f"Showing **{len(with_coords)}** facilities on map")
 
-        with map_col_view:
-            # Prepare facility markers (only those with geocodable cities)
-            map_facilities = []
-            for f in facilities:
-                city = f.get("address_city", "")
-                coords = city_coords.get(city) or city_coords.get(city.title() if city else "")
-                ftype = f.get("facilityTypeId", "unknown")
-                if coords and ftype in selected_types:
-                    map_facilities.append({
-                        **f,
-                        "lat": coords[0],
-                        "lon": coords[1],
-                    })
-
-            # Prepare desert overlay
-            desert_data = None
-            if show_deserts:
-                facilities_json = json.dumps(facilities)
-                desert_regions = find_deserts(facilities, desert_specialty)
-                desert_data = []
-                for region in desert_regions:
-                    rc = REGION_COORDS.get(region)
-                    if rc:
-                        desert_data.append({
-                            "region": region,
-                            "lat": rc[0],
-                            "lon": rc[1],
-                            "specialty": desert_specialty,
-                        })
-
-            # Build and render map
-            m = create_map(
-                facilities=map_facilities,
-                desert_regions=desert_data,
-            )
-            st_folium(m, width=None, height=650, returned_objects=[])
-
+    # Desert overlay — only show for regions with ZERO facilities for that specialty
+    desert_overlay = []
+    if desert_spec != "None":
+        deserts_list, covered_list = find_desert_regions_local(desert_spec)
+        for rname in deserts_list:
+            center = REGION_CENTERS.get(rname)
+            if center:
+                desert_overlay.append({
+                    "region": rname, "lat": center[0], "lon": center[1],
+                    "specialty": desert_spec, "radius_m": 30000,
+                })
+        if desert_overlay:
             st.caption(
-                f"Showing **{len(map_facilities)}** facilities"
-                + (f" | **{len(desert_data)}** desert zones for {desert_specialty}" if desert_data else "")
+                f"Desert overlay: **{len(deserts_list)}** of {len(deserts_list) + len(covered_list)} "
+                f"regions have no *{_humanize(desert_spec)}* facilities"
             )
+
+    # THE MAP — big and prominent
+    m = create_ghana_map(
+        facilities=with_coords,
+        desert_regions=desert_overlay or None,
+        use_clustering=len(with_coords) > 50,
+    )
+    st_folium(m, height=780)
+
+    # Legend bar — cluster colors + desert
+    st.markdown("""
+    <div class="legend-bar">
+        <span style="font-weight:600; margin-right:0.5rem;">Cluster bubbles:</span>
+        <div class="legend-item"><span class="legend-dot" style="background:#1ea446;"></span> Few</div>
+        <div class="legend-item" style="font-size:16px;">&#8594;</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#e8a544;"></span> Medium</div>
+        <div class="legend-item" style="font-size:16px;">&#8594;</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#e74c3c;"></span> Many</div>
+        <span style="border-left:1px solid rgba(160,174,192,0.4); height:16px; margin:0 0.5rem;"></span>
+        <div class="legend-item"><span class="legend-dot" style="background:#e53e3e; opacity:0.25; border:2px dashed #e53e3e;"></span> Medical Desert</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Collapsible facility list
+    with st.expander(f"View facility list ({len(filtered)})"):
+        if filtered:
+            tdata = []
+            for fac in filtered[:300]:
+                raw = fac.get("specialties", "[]")
+                try:
+                    sl = json.loads(raw) if isinstance(raw, str) else (raw if isinstance(raw, list) else [])
+                except (ValueError, TypeError):
+                    sl = []
+                tdata.append({
+                    "Name": fac.get("name", "—"),
+                    "Type": (fac.get("facilityTypeId") or "—").title(),
+                    "City": fac.get("address_city", "—"),
+                    "Region": fac.get("region_normalized", "—"),
+                    "Specialties": len(sl),
+                })
+            list_df = pd.DataFrame(tdata)
+            list_df.index = range(1, len(list_df) + 1)
+            list_df.index.name = "#"
+            st.dataframe(list_df, height=350)
+            st.download_button(
+                "Download facility list (CSV)",
+                list_df.to_csv().encode("utf-8"),
+                "facility_list.csv",
+                "text/csv",
+                key="dl_facility_list",
+            )
+        else:
+            st.info("No facilities match filters.")

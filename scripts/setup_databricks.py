@@ -21,6 +21,7 @@ The only manual step left after this is creating a Genie Space in the UI.
 import builtins
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -84,7 +85,7 @@ def find_warehouse() -> str:
     for wh in warehouses:
         print(f"  Found: {wh.name} (id={wh.id}, state={wh.state})")
 
-    running = [wh for wh in warehouses if str(wh.state) == "RUNNING"]
+    running = [wh for wh in warehouses if "RUNNING" in str(wh.state)]
     if running:
         chosen = running[0]
     else:
@@ -93,7 +94,7 @@ def find_warehouse() -> str:
         w.warehouses.start(chosen.id)
         for _ in range(30):
             wh = w.warehouses.get(chosen.id)
-            if str(wh.state) == "RUNNING":
+            if "RUNNING" in str(wh.state):
                 break
             print(f"    state: {wh.state} — waiting...")
             time.sleep(10)
@@ -191,7 +192,7 @@ def clean_and_upload() -> str:
     print("  Regions normalized")
 
     # Save as parquet
-    parquet_path = "/tmp/ghana_facilities_clean.parquet"
+    parquet_path = os.path.join(tempfile.gettempdir(), "ghana_facilities_clean.parquet")
     df.to_parquet(parquet_path, index=False)
     print(f"  Saved clean parquet ({os.path.getsize(parquet_path) / 1024:.0f} KB)")
 
