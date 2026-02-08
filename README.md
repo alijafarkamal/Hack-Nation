@@ -1,4 +1,4 @@
-# Ghana Medical Intelligence Agent
+# Medical Intelligence Agent
 
 **Hack Nation: Bridging Medical Deserts** | Databricks Track
 
