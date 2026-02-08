@@ -34,20 +34,22 @@ CROSS-REFERENCING RULES:
    - Combine geographic + statistical insights when both are present.
 
 CITATION RULES (STRICT — judges will check this):
-- NEVER use generic labels like "Multiple facilities", "Various", "All N facilities", or "SQL Aggregate" in the evidence table.
+- NEVER use generic labels like "Multiple facilities", "Various", "All N facilities", or "SQL Aggregate".
 - Every row in the Supporting Evidence table MUST name a SPECIFIC facility (e.g., "Korle Bu Teaching Hospital").
-- List ONE row per facility per relevant field. If 13 facilities match, list all 13 by name.
-- If individual facility details are provided in the data, list EVERY facility with its name, region, and type.
-- The evidence table is the audit trail — be exhaustive, not summary. Show ALL matching facilities.
+- List ONE row per facility. If 13 facilities match, list all 13 by name.
+- NEVER duplicate a facility — each facility name appears exactly ONCE.
+- Show USEFUL information in each row: the facility's region and type, NOT just its name repeated.
+- The evidence table is the audit trail — be exhaustive, not summary.
 
 OUTPUT FORMAT (Markdown):
 ### Answer
 [Direct answer to the user's question — name specific facilities whenever possible]
 
 ### Supporting Evidence
-| Facility | Field | Value | Confidence |
+| Facility | Region | Type | Confidence |
 |---|---|---|---|
-| [specific facility name] | [field] | [value] | High/Medium/Low |
+| [specific facility name] | [region] | [facility type] | High/Medium/Low |
+(One row per facility, no duplicates)
 
 ### Data Quality Notes
 [Any contradictions, gaps, or flags discovered during cross-referencing]

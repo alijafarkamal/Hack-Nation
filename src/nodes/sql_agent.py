@@ -111,9 +111,17 @@ def sql_agent_node(state: AgentState) -> dict:
             try:
                 rows, cols = _run_sql_direct(detail_sql)
                 if rows:
-                    result["detail_data"] = rows
+                    # Deduplicate by facility name (first column)
+                    seen = set()
+                    unique_rows = []
+                    for row in rows:
+                        key = row[0] if row else ""
+                        if key and key not in seen:
+                            seen.add(key)
+                            unique_rows.append(row)
+                    result["detail_data"] = unique_rows
                     result["detail_columns"] = cols
-                    log.info("Got %d facility rows from rewritten SQL", len(rows))
+                    log.info("Got %d unique facility rows from rewritten SQL", len(unique_rows))
             except Exception as e:
                 log.warning("Direct SQL execution failed: %s", e)
 
