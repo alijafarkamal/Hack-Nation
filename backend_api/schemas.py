@@ -16,6 +16,7 @@ class TriageSessionResponse(BaseModel):
     session_id: str
     status: str
     capabilities_needed: list[str] = []
+    red_flags: list[str] = []
     query_used: str = ""
     safety_disclaimer: str = (
         "This is a capability-matching triage assistant, not a medical diagnosis. "
@@ -38,10 +39,14 @@ class ReferralPreviewRequest(BaseModel):
     patient_summary: str = ""
     message_body: str = ""
     contact_hint: str = ""
+    to_phone: str = ""
+    """E.164 preferred, e.g. +9198xxxxxx; used for real Twilio SMS on /referral/send."""
 
 
 class ReferralSendRequest(BaseModel):
     preview_id: str
+    to_phone: str = ""
+    """Override recipient; if empty, uses phone stored at preview time."""
 
 
 class ReferralPreviewResponse(BaseModel):
@@ -56,8 +61,21 @@ class ReferralSendResponse(BaseModel):
     success: bool
     audit_id: str
     message: str = ""
+    mode: str = "mock"
+    twilio_message_sid: str | None = None
+    provider_error: str | None = None
 
 
 class PolicyDesertParams(BaseModel):
     specialty: str
     level: str = "pin"  # pin|state
+
+
+class EnrichmentFacilityRequest(BaseModel):
+    facility_name: str = Field(..., min_length=1)
+    district: str = ""
+    state: str = ""
+
+
+class EnrichmentBatchRequest(BaseModel):
+    items: list[dict] = Field(default_factory=list, description="Max 20: {name, district?, state?}")

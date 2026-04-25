@@ -73,12 +73,24 @@ def get_session(session_id: str) -> dict[str, Any] | None:
     return _CAP_CACHE.get(session_id)
 
 
+_SAFETY = (
+    "Capability match / triage assistant only — not a medical diagnosis. "
+    "In emergencies, seek immediate in-person care."
+)
+
+
 def match_facilities_for_session(
     session_id: str, correlation_id: str, state_hint: str | None, top_k: int
 ) -> dict[str, Any]:
     s = get_session(session_id)
     if not s:
-        return {"error": "session not found", "status": 404}
+        return {
+            "error": "session not found",
+            "status": 404,
+            "correlation_id": correlation_id,
+            "safety_disclaimer": _SAFETY,
+            "citations": [],
+        }
     cap = ", ".join(s.get("capabilities") or ["general"])
     st = f" in {state_hint}" if state_hint else " in India"
     q = (
@@ -87,4 +99,9 @@ def match_facilities_for_session(
     )
     if state_hint:
         q += f" Prioritize {state_hint}."
-    return run_graph(q, correlation_id=correlation_id)
+    g = run_graph(q, correlation_id=correlation_id)
+    return {
+        **g,
+        "safety_disclaimer": _SAFETY,
+        "graph_summary": (g.get("final_answer") or "")[:20000] or None,
+    }

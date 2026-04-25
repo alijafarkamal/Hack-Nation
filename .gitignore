@@ -1,9 +1,21 @@
-# Environment & secrets
-.env
-.env.local
-.env.*.local
+# Environment & secrets (keep .env.example tracked)
+.env*
+!.env.example
+.envrc
+.direnv/
 *.pem
+*.p12
+*.key
 secrets/
+auth/
+*credentials*.json
+service-account*.json
+gcp-*.json
+google-services.json
+id_rsa
+id_ed25519
+id_ecdsa
+twilio_*.json
 
 # Python
 .venv/
@@ -80,8 +92,9 @@ node_modules/
 out/
 .nuxt/
 
-# Large / generated / local-only data (not for git)
+# Large / local-only data (CSV lives under docs/csv/ locally)
 VF_Hackathon_Dataset_India_Large.csv
+docs/csv/*.csv
 **/*Large*.csv
 *.parquet
 *.feather
@@ -89,7 +102,7 @@ VF_Hackathon_Dataset_India_Large.csv
 data/raw/
 data/cache/
 
-# Challenge PDFs / exports (re-download locally if needed)
+# Legacy root PDF filenames (if still present)
 *Serving*a*Nation*.pdf
 *Google*Docs*.pdf
 

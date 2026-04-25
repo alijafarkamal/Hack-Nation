@@ -27,6 +27,7 @@ requests>=2.31.0
 # API
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
+twilio==9.0.0
 
 # Testing
 pytest==9.0.2

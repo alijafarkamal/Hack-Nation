@@ -46,7 +46,10 @@ def test_triage_analyze(mock_run):
 def test_healthz():
     r = _client().get("/healthz")
     assert r.status_code == 200
-    assert r.json()["ok"] is True
+    j = r.json()
+    assert j["ok"] is True
+    assert "integrations" in j
+    assert "twilio" in j.get("integrations", {})
 
 
 def test_referral_preview_send():
@@ -63,8 +66,10 @@ def test_referral_preview_send():
     pid = p.json()["preview_id"]
     s = c.post("/referral/send", json={"preview_id": pid})
     assert s.status_code == 200, s.text
-    assert s.json()["success"] is True
-    assert s.json()["audit_id"]
+    sj = s.json()
+    assert sj["success"] is True
+    assert sj["audit_id"]
+    assert sj.get("mode") in ("mock", "twilio", "mock_fallback")
 
 
 @mock.patch("backend_api.services.policy_service._run_facility_sql")
@@ -87,10 +92,24 @@ def test_policy_endpoints(mock_sql):
     c = TestClient(app)
     r = c.get("/policy/deserts", params={"specialty": "emergency", "level": "state"})
     assert r.status_code == 200, r.text
-    assert "desert_states" in r.json()
+    d = r.json()
+    assert "desert_states" in d
+    assert "citations" in d
     p = c.get("/policy/pin-risk/800001")
     assert p.status_code == 200, p.text
     assert p.json()["pin_code"] == "800001"
+
+
+@mock.patch("backend_api.services.enrichment_service.tavily_effective", return_value=False)
+def test_enrichment_503_without_tavily(_mock_tavily):
+    from backend_api.main import app
+
+    c = TestClient(app)
+    r = c.post(
+        "/enrichment/facility",
+        json={"facility_name": "Test", "district": "", "state": ""},
+    )
+    assert r.status_code == 503
 
 
 def test_geospatial_desert_pins_unit():

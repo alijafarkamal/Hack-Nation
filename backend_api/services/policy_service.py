@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.citations import normalize_citation
 from src.config import TABLE_FACILITIES
 from src.nodes.geospatial import _run_facility_sql, find_desert_pins, find_desert_states
 from src.utils.confidence import wilson_w_interval
@@ -29,6 +30,19 @@ def get_desert_report(
     n = len(all_pins)
     k = len(d_pins) if (level or "").lower() == "pin" else 0
     w = wilson_w_interval(int(k), int(n)) if n and (level or "").lower() == "pin" else None
+    cit = [
+        dict(
+            normalize_citation(
+                source="policy",
+                facility="",
+                field="desert_aggregator",
+                evidence_snippet=f"Specialty={st}, n_pins={n}, k_desert={k} (Wilson when level=pin)",
+                confidence=0.55 if w else 0.4,
+                row_id="",
+                correlation_id=correlation_id,
+            )
+        )
+    ]
     return {
         "specialty": st,
         "level": (level or "state").lower(),
@@ -50,6 +64,8 @@ def get_desert_report(
             else None
         ),
         "top_contradiction_reasons": [],
+        "citations": cit,
+        "safety_framing": "Policy / coverage analytics — not clinical guidance.",
         "correlation_id": correlation_id,
     }
 
@@ -59,6 +75,7 @@ def get_pin_risk(pin_code: str, correlation_id: str) -> dict[str, Any]:
     if not (len(pin) == 6 and pin.isdigit()):
         return {
             "error": "Invalid PIN (expect 6 digits).",
+            "citations": [],
             "correlation_id": correlation_id,
         }
     rows = _run_facility_sql(
@@ -111,5 +128,19 @@ def get_pin_risk(pin_code: str, correlation_id: str) -> dict[str, Any]:
             for f in (rows or [])[:8]
         ],
         "contrast_reasons": void_reasons,
+        "citations": [
+            dict(
+                normalize_citation(
+                    source="policy",
+                    facility="",
+                    field="pin_risk",
+                    evidence_snippet=f"PIN {pin} facilities n={n}, high_trust k={k_high} (Wilson interval)",
+                    confidence=0.5 if n else 0.25,
+                    row_id=pin,
+                    correlation_id=correlation_id,
+                )
+            )
+        ],
+        "safety_framing": "Policy / coverage analytics — not clinical guidance.",
         "correlation_id": correlation_id,
     }

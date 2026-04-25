@@ -1,5 +1,5 @@
 """
-CareCompass FastAPI: triage, mock referral, policy (PIN / state deserts).
+CareCompass FastAPI: triage, referral (Twilio or mock), policy, Tavily enrichment.
 Run: `uvicorn backend_api.main:app --reload` from repo root.
 """
 
@@ -8,19 +8,20 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend_api.integrations import integration_status
 from backend_api.middleware.correlation import CorrelationIdMiddleware
 from backend_api.schemas import (
     TriageAnalyzeRequest,
     TriageMatchRequest,
     TriageSessionResponse,
 )
-from backend_api.routes import referral
+from backend_api.routes import enrichment, referral
 from backend_api.services import policy_service, triage_service
 
 app = FastAPI(
     title="CareCompass API",
     version="0.1.0",
-    description="Capability matching, policy deserts, and mock referral (Challenge 03 backend).",
+    description="Capability-matching triage, trust-backed policy, referral SMS (optional Twilio), Tavily enrichment.",
 )
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
@@ -30,6 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(referral.router)
+app.include_router(enrichment.router)
 
 
 def _cid(request: Request) -> str:
@@ -38,7 +40,11 @@ def _cid(request: Request) -> str:
 
 @app.get("/healthz")
 def healthz() -> dict:
-    return {"ok": True, "service": "carecompass"}
+    return {
+        "ok": True,
+        "service": "carecompass",
+        "integrations": integration_status(),
+    }
 
 
 @app.post("/triage/analyze", response_model=TriageSessionResponse)
@@ -50,6 +56,7 @@ def triage_analyze(request: Request, body: TriageAnalyzeRequest) -> TriageSessio
         session_id=out["session_id"],
         status="analyzed",
         capabilities_needed=list(out.get("capabilities_needed") or []),
+        red_flags=list(out.get("red_flags") or []),
         query_used=str(out.get("query_used") or ""),
         graph_summary=(g.get("final_answer") or "")[:20000] or None,
         correlation_id=str(g.get("correlation_id", cor) or cor),
@@ -67,9 +74,11 @@ def triage_get(request: Request, session_id: str) -> TriageSessionResponse:
         session_id=session_id,
         status="ok",
         capabilities_needed=s.get("capabilities", []),
+        red_flags=s.get("red_flags", []),
         query_used=s.get("query", ""),
         graph_summary=None,
         correlation_id=cor,
+        citations=[],
     )
 
 
