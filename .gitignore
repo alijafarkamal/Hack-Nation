@@ -1,0 +1,97 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+secrets/
+
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+*.egg-info/
+.eggs/
+dist/
+build/
+wheels/
+pip-wheel-metadata/
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+.hypothesis/
+
+# MLflow & experiment tracking
+mlruns/
+mlflow.db
+*.pt
+*.pth
+*.onnx
+*.pkl
+*.joblib
+wandb/
+.lightning/
+
+# Jupyter
+.ipynb_checkpoints/
+*/.ipynb_checkpoints
+profile_default/
+
+# IDEs & editors
+.idea/
+.vscode/
+*.sublime-*
+*.swp
+*~
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Cursor & local tools
+.cursor/
+*.code-workspace
+
+# Logs & temp
+*.log
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
+.cache/
+.pytest_cache/
+
+# Node (if any frontend tooling is added)
+node_modules/
+.next/
+out/
+.nuxt/
+
+# Large / generated / local-only data (not for git)
+VF_Hackathon_Dataset_India_Large.csv
+**/*Large*.csv
+*.parquet
+*.feather
+*.h5
+data/raw/
+data/cache/
+
+# Challenge PDFs / exports (re-download locally if needed)
+*Serving*a*Nation*.pdf
+*Google*Docs*.pdf
+
+# Vendored reference (optional; clone separately if you need the full copy)
+reference/
