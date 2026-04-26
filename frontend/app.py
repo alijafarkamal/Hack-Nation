@@ -2215,9 +2215,26 @@ def _tab_map() -> None:
         unsafe_allow_html=True,
     )
 
-    ch_col, map_col = st.columns([0.35, 0.65])
+    fmap = create_india_map(
+        desert_states=desert_overlay,
+        covered_states=covered_overlay,
+        specialty=loaded_spec,
+        use_clustering=False,
+        heatmap_desert_points=heat_tuples,
+        map_center=map_center,
+        zoom_start=zoom_override,
+        spotlight=spotlight,
+    )
+    rkey = "_".join(sorted(region_q)) if region_q else "all"
+    map_key = f"map_{loaded_spec}_{level}_{len(d_states)}_{rkey}_{map_six or 'x'}"
+
+    st_folium(fmap, key=map_key, width=None, height=680, use_container_width=True)
+
+    ch_col, m1, m2, m3 = st.columns([3, 1, 1, 1])
+    m1.metric("Desert states", len(d_states))
+    m2.metric("Covered states", len(c_states))
+    m3.metric("Desert PINs", len(d_pins))
     with ch_col:
-        st.markdown("**Desert pressure by state** (PIN count share)")
         if d_states and pin_counts:
             df_b = (
                 pd.DataFrame([{"State": s, "Desert PINs (est.)": pin_counts.get(s, 0)} for s in d_states])
@@ -2233,35 +2250,12 @@ def _tab_map() -> None:
             )
             figb.update_layout(
                 title=f"Top coverage gaps — {loaded_spec[:24]}",
-                height=max(280, 28 * len(df_b)),
-                margin=dict(l=0, r=8, t=40, b=8),
+                height=max(220, 28 * len(df_b)),
+                margin=dict(l=0, r=8, t=36, b=8),
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
             )
             st.plotly_chart(figb, use_container_width=True)
-        else:
-            st.caption("No desert states in this view.")
-
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Desert states", len(d_states))
-        m2.metric("Covered states", len(c_states))
-        m3.metric("Desert PINs", len(d_pins))
-
-    fmap = create_india_map(
-        desert_states=desert_overlay,
-        covered_states=covered_overlay,
-        specialty=loaded_spec,
-        use_clustering=False,
-        heatmap_desert_points=heat_tuples,
-        map_center=map_center,
-        zoom_start=zoom_override,
-        spotlight=spotlight,
-    )
-    rkey = "_".join(sorted(region_q)) if region_q else "all"
-    map_key = f"map_{loaded_spec}_{level}_{len(d_states)}_{rkey}_{map_six or 'x'}"
-
-    with map_col:
-        st_folium(fmap, key=map_key, width=None, height=680, use_container_width=True)
 
     st.caption(
         "Circles are placed at state centroids. Gaps between circles are geography — not missing data. "
