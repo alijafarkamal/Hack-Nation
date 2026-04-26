@@ -907,7 +907,56 @@ def _render_trust_report(trust_artifacts: dict[str, Any] | None) -> None:
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-def _render_full_trust_report(mr: dict[str, Any]) -> None:
+def _render_inline_referral(*, fname: str, phone: str, email: str, triage_red: list[str], ts: dict[str, Any] | None) -> None:
+    """Render the referral form inline directly below a facility card."""
+    rf_text = "\n".join(_humanize(str(x)) for x in triage_red) if triage_red else "— none flagged"
+    sym_area = st.session_state.get("triage_sym_area", "")
+    ikey = abs(hash(fname)) % 1_000_000_000
+    st.markdown(
+        '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-left:5px solid #059669;'
+        'border-radius:0.5rem;padding:1rem 1.2rem;margin:0.25rem 0 0.75rem 0;">',
+        unsafe_allow_html=True,
+    )
+    st.markdown(f"**Referral — {fname}**")
+    rcols = st.columns([2, 2])
+    with rcols[0]:
+        to_phone_inline = st.text_input("Phone (E.164)", value=phone, key=f"rp_{ikey}")
+        psum_inline = st.text_area("Patient summary (editable)", value=sym_area, height=70, key=f"rs_{ikey}")
+    with rcols[1]:
+        st.text_area("Red flags from triage (read-only)", value=rf_text, height=70, disabled=True, key=f"rrf_{ikey}")
+        do_preview = st.button("Preview & prepare referral", key=f"rprev_{ikey}", type="primary")
+    if do_preview:
+        sid = (ts or {}).get("session_id") if ts else None
+        if not sid:
+            st.warning("Run triage analysis first to get a session ID for preview.")
+        else:
+            try:
+                pv = api_client.referral_preview(session_id=sid, to_facility=fname, patient_summary=psum_inline, to_phone=to_phone_inline)
+                st.session_state[f"ref_inline_pv_{ikey}"] = pv
+                st.session_state.ref_to_phone = to_phone_inline
+            except Exception as e:
+                st.error(_safe_str(e))
+    pv = st.session_state.get(f"ref_inline_pv_{ikey}")
+    if pv:
+        with st.expander("Referral preview (JSON)", expanded=False):
+            st.json(pv)
+        pid = pv.get("preview_id")
+        send_col, email_col = st.columns(2)
+        with send_col:
+            if pid and st.button("Send SMS now", key=f"rsms_{ikey}", type="secondary"):
+                try:
+                    send = api_client.referral_send(preview_id=str(pid), to_phone=str(st.session_state.get("ref_to_phone") or ""))
+                    st.success(f"Sent via {send.get('mode', '—')} · Audit ID: {send.get('audit_id', '—')}")
+                except Exception as e:
+                    st.error(_safe_str(e))
+        with email_col:
+            if email.strip():
+                href = _mailto_patient_arrival(email.strip(), fname, psum_inline, triage_red)
+                st.link_button("Email facility (opens mail app)", href, type="secondary")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def _render_full_trust_report(mr: dict[str, Any], ts: dict[str, Any] | None = None) -> None:
     """Trust Scorer, contact details, and referral — one card per facility (no duplicate list)."""
     trust_artifacts = mr.get("trust_artifacts")
     if not trust_artifacts or not isinstance(trust_artifacts, dict):
@@ -1022,7 +1071,11 @@ padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
                 st.session_state.ref_patient_summary = st.session_state.get("triage_sym_area", "")
                 st.session_state.ref_red_flags = list(triage_red)
                 st.session_state.ref_email = email or ""
-                st.toast(f"Referral pre-filled for {fname} (summary + triage red flags).")
+                # toggle inline form: close if same facility clicked again
+                if st.session_state.get("ref_inline_open") == idx:
+                    st.session_state.ref_inline_open = None
+                else:
+                    st.session_state.ref_inline_open = idx
         for dg in disagreements[:1]:
             st.markdown(f'<span style="font-size:0.77rem;color:#d97706;">⚡ {_humanize(dg)}</span>', unsafe_allow_html=True)
         if flags:
@@ -1030,6 +1083,9 @@ padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
         if notes:
             st.markdown(f'<span class="fac-evidence">{_clean_markdown(notes[:200])}</span>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+        # Inline referral form — shown immediately below the card when clicked
+        if st.session_state.get("ref_inline_open") == idx:
+            _render_inline_referral(fname=fname, phone=phone, email=email, triage_red=triage_red, ts=ts)
         st.markdown('<hr style="margin:0.3rem 0;border:none;border-top:1px solid #f1f5f9;">', unsafe_allow_html=True)
         facilities_shown.append({
             "Facility": fname, "State": state, "PIN": str(pin), "Type": _humanize(str(ftype)),
@@ -1085,6 +1141,95 @@ def _trace_id_html(session_id: str = "", correlation_id: str = "") -> str:
     if not parts:
         return ""
     return f'<span class="trace-id">{"  ·  ".join(parts)}</span>'
+
+
+def _generate_query_log_pdf(log: list[dict[str, Any]]) -> bytes:
+    """Generate a polished PDF of the public-health query log."""
+    from fpdf import FPDF
+
+    def _safe(text: str) -> str:
+        return str(text).encode("latin-1", "replace").decode("latin-1")
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(True, margin=14)
+    pdf.set_margins(14, 14, 14)
+    pdf.add_page()
+    pdf.set_fill_color(30, 58, 95)
+    pdf.rect(0, 0, 220, 4, "F")
+    pdf.set_fill_color(255, 153, 51)
+    pdf.rect(0, 4, 220, 4, "F")
+    pdf.set_y(14)
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.set_text_color(30, 58, 95)
+    pdf.cell(0, 8, "CareCompass India", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(51, 65, 85)
+    pdf.cell(0, 6, "Public Health Query Log", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 4, _safe(f"Exported {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  {len(log)} session queries"), new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_x(pdf.l_margin)
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "I", 7)
+    pdf.multi_cell(0, 3.2, _safe("Policy / public-health analytics only — not clinical guidance. Capability-matching triage assistant, not medical diagnosis."), align="L")
+    pdf.set_x(pdf.l_margin)
+    pdf.ln(4)
+
+    # capability summary first
+    cap_counts: dict[str, int] = {}
+    for entry in log:
+        for c in (entry.get("capabilities") or "").split(", "):
+            c = c.strip()
+            if c:
+                cap_counts[c] = cap_counts.get(c, 0) + 1
+    if cap_counts:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(30, 58, 95)
+        pdf.cell(0, 5, "Most requested capabilities (this session)", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_x(pdf.l_margin)
+        for cap, cnt in sorted(cap_counts.items(), key=lambda x: -x[1])[:12]:
+            pdf.set_font("Helvetica", "", 8)
+            pdf.set_text_color(50, 50, 50)
+            bar_pct = min(1.0, cnt / max(cap_counts.values()))
+            bar_w = int(bar_pct * 90)
+            pdf.set_fill_color(37, 99, 235)
+            pdf.rect(pdf.get_x(), pdf.get_y() + 1.5, max(2, bar_w), 3, "F")
+            pdf.set_x(pdf.get_x() + 96)
+            pdf.cell(0, 5, _safe(f"{cap} ({cnt})"), new_x="LMARGIN", new_y="NEXT")
+            pdf.set_x(pdf.l_margin)
+        pdf.ln(3)
+
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(30, 58, 95)
+    pdf.cell(0, 5, "Individual queries", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(pdf.l_margin)
+    pdf.ln(1)
+    for i, entry in enumerate(log):
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_text_color(30, 58, 95)
+        ts_str = entry.get("timestamp", "—")
+        state_h = entry.get("state_hint", "")
+        label = f"Query {i + 1}  ·  {ts_str}" + (f"  ·  {state_h}" if state_h else "")
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 4, _safe(label))
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(50, 50, 50)
+        symp = (entry.get("symptoms") or "")[:300]
+        pdf.multi_cell(0, 3.8, _safe(f"Symptoms: {symp}"))
+        pdf.set_x(pdf.l_margin)
+        caps = (entry.get("capabilities") or "—")[:200]
+        pdf.set_font("Helvetica", "I", 7)
+        pdf.multi_cell(0, 3.2, _safe(f"Capabilities: {caps}"))
+        pdf.set_x(pdf.l_margin)
+        pdf.set_draw_color(203, 213, 225)
+        pdf.line(pdf.l_margin, pdf.get_y() + 0.5, pdf.w - pdf.r_margin, pdf.get_y() + 0.5)
+        pdf.ln(2.5)
+
+    result = pdf.output(dest="S")
+    return bytes(result) if isinstance(result, (bytes, bytearray)) else str(result).encode("latin-1")
 
 
 def _generate_mission_pdf(
@@ -1274,7 +1419,7 @@ def _tab_triage() -> None:
     st.markdown(f'<p class="disclaimer-critical">{DISCLAIMER_TRIAGE}</p>', unsafe_allow_html=True)
     for key, default in [
         ("triage_session", None), ("match_result", None), ("triage_sym_area", ""), ("triage_region", ""),
-        ("ref_red_flags", []), ("ref_email", ""),
+        ("ref_red_flags", []), ("ref_email", ""), ("ref_inline_open", None),
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
@@ -1376,7 +1521,7 @@ def _tab_triage() -> None:
         _render_thought_process(mr)
 
         # 2. Trust Scorer + contacts + refer (single list, no duplicate facility block)
-        _render_full_trust_report(mr)
+        _render_full_trust_report(mr, ts=ts)
 
         # 3. Supporting evidence + citations pushed to bottom expanders ────
         out_md = mr.get("graph_summary") or mr.get("final_answer")
@@ -1391,54 +1536,22 @@ def _tab_triage() -> None:
         if tid:
             st.markdown(tid, unsafe_allow_html=True)
 
-    st.divider()
-    st.markdown('<div class="section-card"><h4>Referral (Preview and Send SMS)</h4>', unsafe_allow_html=True)
-    st.caption(
-        "Click **Refer this facility** on a result above to pre-fill facility, phone, patient summary, "
-        "and triage red flags. Preview sends a structured message to the API; use Email or SMS to notify the site."
-    )
-    ref_fac_default = st.session_state.get("ref_facility_name", "")
-    ref_phone_default = st.session_state.get("ref_phone", "")
-    ref_summary_default = st.session_state.get("ref_patient_summary", "")
-    rf_list = st.session_state.get("ref_red_flags") or []
-    ref_rf_text = "\n".join(_humanize(str(x)) for x in rf_list) if rf_list else "— (from triage after you click “Refer this facility”)"
-    with st.form("ref_form"):
-        to_fac = st.text_input("Facility Name", value=ref_fac_default)
-        to_phone = st.text_input("Phone Number (E.164, e.g. +91…)", value=ref_phone_default)
-        psum = st.text_area("Patient Summary (symptoms and context from triage)", value=ref_summary_default, height=60)
-        st.text_area("Red flags (from triage session — read-only)", value=ref_rf_text, height=64, disabled=True, key="ref_flags_ro")
-        sub_prev = st.form_submit_button("Preview Referral")
-    if sub_prev:
-        if not (ts and ts.get("session_id")):
-            st.error("Run the analysis first.")
-        elif not to_fac.strip():
-            st.error("Enter a facility name.")
-        else:
-            try:
-                pv = api_client.referral_preview(session_id=ts["session_id"], to_facility=to_fac.strip(), patient_summary=psum, to_phone=to_phone)
-                st.session_state.ref_preview = pv
-                st.session_state.ref_to_phone = to_phone
-            except Exception as e:
-                st.error(_safe_str(e))
-    rpv = st.session_state.get("ref_preview")
-    if rpv:
-        st.json(rpv)
-        pid = rpv.get("preview_id")
-        if pid and st.button("Send SMS", type="secondary"):
-            try:
-                send = api_client.referral_send(preview_id=str(pid), to_phone=str(st.session_state.get("ref_to_phone") or ""))
-                st.success(f"Sent via {send.get('mode', '—')} · Audit ID: {send.get('audit_id', '—')}")
-            except Exception as e:
-                st.error(_safe_str(e))
-    # Email: open default mail client (no backend send) when enrichment provided an address
-    re_mail = (st.session_state.get("ref_email") or "").strip()
-    if re_mail:
-        _fac_n = (st.session_state.get("ref_facility_name", "") or "").strip()
-        _psum_n = (st.session_state.get("ref_patient_summary", "") or "").strip()
-        _flags_n: list[str] = list(st.session_state.get("ref_red_flags") or [])
-        _href = _mailto_patient_arrival(re_mail, _fac_n, _psum_n, _flags_n)
-        st.link_button("Email facility (patient arrival / coordination) — opens your mail app", _href, type="secondary")
-    st.markdown('</div>', unsafe_allow_html=True)
+    if mr:
+        rpv = st.session_state.get("ref_preview")
+        if rpv:
+            st.divider()
+            st.markdown('<div class="section-card"><h4>Last Referral Preview (SMS)</h4>', unsafe_allow_html=True)
+            st.caption("Use the inline referral form on each facility above. This section lets you send SMS for the last previewed referral.")
+            with st.expander("Preview JSON"):
+                st.json(rpv)
+            pid = rpv.get("preview_id")
+            if pid and st.button("Send SMS", type="secondary"):
+                try:
+                    send = api_client.referral_send(preview_id=str(pid), to_phone=str(st.session_state.get("ref_to_phone") or ""))
+                    st.success(f"Sent via {send.get('mode', '—')} · Audit ID: {send.get('audit_id', '—')}")
+                except Exception as e:
+                    st.error(_safe_str(e))
+            st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ── Tab 2: Mission Planner ──────────────────────────────────────────────────
@@ -1943,7 +2056,15 @@ def _tab_analytics() -> None:
     writer = csv.DictWriter(buf, fieldnames=["timestamp", "symptoms", "capabilities", "state_hint"])
     writer.writeheader()
     writer.writerows(log)
-    st.download_button("Download Query Log (CSV)", data=buf.getvalue(), file_name=f"carecompass_query_log_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+    dl_col1, dl_col2 = st.columns(2)
+    with dl_col1:
+        st.download_button("Download Query Log (CSV)", data=buf.getvalue(), file_name=f"carecompass_query_log_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv", key="dl_query_csv")
+    with dl_col2:
+        try:
+            pdf_q = _generate_query_log_pdf(log)
+            st.download_button("Download Query Log (PDF)", data=pdf_q, file_name=f"carecompass_query_log_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf", key="dl_query_pdf")
+        except Exception as _pdf_err:
+            st.caption(f"PDF export unavailable: {_pdf_err}")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
