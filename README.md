@@ -12,44 +12,44 @@
 
 ```mermaid
 flowchart TD
-    U([User / NGO Planner]) -->|Natural language query| ST[Streamlit Frontend\n5-tab dashboard]
-    ST -->|HTTPS + X-Request-Id| MW[FastAPI + Correlation\nID Middleware]
-    MW --> TS[/triage/analyze\n/triage/match_facilities]
-    MW --> PS[/policy/deserts\n/policy/pin-risk]
-    MW --> RS[/referral/preview\n/referral/send]
-    MW --> ES[/enrichment/facility]
+    U([User / NGO Planner]) -->|Natural language query| ST[Streamlit Frontend]
+    ST -->|HTTPS + X-Request-Id| MW[FastAPI + Correlation Middleware]
+    MW --> TS["/triage/analyze  /triage/match_facilities"]
+    MW --> PS["/policy/deserts  /policy/pin-risk"]
+    MW --> RS["/referral/preview  /referral/send"]
+    MW --> ES["/enrichment/facility"]
 
     TS --> LG[LangGraph StateGraph]
     PS --> LG
 
-    subgraph LangGraph Multi-Agent Pipeline
-        LG --> SV[Supervisor Node\nNormalise + Intent classify]
-        SV -->|fan-out: up to 2 parallel| SQL[SQL Agent\nDatabricks Genie]
-        SV -->|fan-out| RAG[RAG Agent\nVector Search]
-        SV -->|fan-out| IDP[IDP Extraction\nStructured JSON from text]
-        SV -->|fan-out| TR[Trust Scorer\nExtractor → Validator]
-        SV -->|fan-out| GEO[Geospatial Agent\nHaversine + Deserts]
-        SQL --> SY[Synthesis Node\nJSON → Markdown + Citations]
+    subgraph agents["LangGraph Multi-Agent Pipeline"]
+        LG --> SV[Supervisor — Normalise + Intent classify]
+        SV -->|fan-out up to 2 parallel| SQL[SQL Agent — Databricks Genie]
+        SV -->|fan-out| RAG[RAG Agent — Vector Search]
+        SV -->|fan-out| IDP[IDP Extraction — Structured JSON]
+        SV -->|fan-out| TR[Trust Scorer — Extractor vs Validator]
+        SV -->|fan-out| GEO[Geospatial — Haversine + Deserts]
+        SQL --> SY[Synthesis — JSON + Markdown + Citations]
         RAG --> SY
         IDP --> SY
         TR --> SY
         GEO --> SY
     end
 
-    subgraph Databricks Platform
-        SQL --> GN[Genie\nText-to-SQL]
-        RAG --> VS[Vector Search\ngte-large-en embeddings]
-        TR --> MS[Model Serving\nQwen 3 80B]
+    subgraph databricks["Databricks Platform"]
+        SQL --> GN[Genie Text-to-SQL]
+        RAG --> VS[Vector Search gte-large-en]
+        TR --> MS[Model Serving Qwen 3 80B]
         IDP --> MS
         SV --> MS
         SY --> MS
-        GN --> UC[Unity Catalog\nDelta Tables — 10k facilities]
+        GN --> UC[Unity Catalog — 10k facilities]
         VS --> UC
-        SY --> ML[MLflow 3\nPer-node @mlflow.trace]
+        SY --> ML[MLflow 3 — per-node tracing]
     end
 
-    RS --> TW[Twilio SMS\nor mock fallback]
-    ES --> TAV[Tavily Web Search\nContact enrichment]
+    RS --> TW[Twilio SMS]
+    ES --> TAV[Tavily Web Search]
 ```
 
 ---
@@ -66,24 +66,24 @@ sequenceDiagram
     participant DB as Databricks
     participant UI as Streamlit UI
 
-    U->>API: POST /triage/analyze {symptoms_text}
-    API->>SV: run_graph(query, correlation_id)
-    SV->>SV: Normalise typos via LLM
-    SV->>SV: Classify intent(s): SQL | SEARCH | EXTRACT | TRUST | GEO
-    SV-->>AG: Fan-out to 1–2 nodes in parallel
+    U->>API: POST /triage/analyze symptoms_text
+    API->>SV: run_graph query + correlation_id
+    SV->>SV: Stage 1 — Normalise typos via LLM
+    SV->>SV: Stage 2 — Classify intent SQL/SEARCH/EXTRACT/TRUST/GEO
+    SV-->>AG: Fan-out to 1 or 2 nodes in parallel
 
     par Parallel execution
-        AG->>DB: SQL Agent → Genie → Unity Catalog SQL
-        AG->>DB: RAG Agent → Vector Search → top-k semantic hits
-        AG->>DB: Trust Scorer → Extractor LLM → Validator LLM
+        AG->>DB: SQL Agent calls Genie calls Unity Catalog
+        AG->>DB: RAG Agent calls Vector Search top-k hits
+        AG->>DB: Trust Scorer calls Extractor LLM then Validator LLM
     end
 
-    AG->>SY: Merge per-node results into AgentState
-    SY->>DB: Synthesis LLM → structured JSON + Markdown
-    SY->>DB: MLflow trace closed with correlation_id
-    SY->>API: AgentState {final_answer, citations, trust_artifacts, …}
-    API->>U: JSON response
-    U->>UI: View facility cards, trust verdicts, citations, referral form
+    AG->>SY: Merge all node results into AgentState
+    SY->>DB: Synthesis LLM returns structured JSON + Markdown
+    SY->>DB: MLflow trace closed with correlation_id tag
+    SY->>API: AgentState with final_answer, citations, trust_artifacts
+    API->>U: JSON response with correlation_id
+    U->>UI: Facility cards, trust verdicts, citations, referral form
 ```
 
 ---
