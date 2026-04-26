@@ -111,8 +111,13 @@ def get_pin_risk(pin_code: str, correlation_id: str) -> dict[str, Any]:
         if b.strip() in ("", "[]", "null", "[]"):
             void_reasons.append("sparse structured text")
             break
+    primary_state = None
+    if rows:
+        primary_state = (rows[0] or {}).get("state_normalized")
+
     return {
         "pin_code": pin,
+        "state_normalized": primary_state,
         "facility_count": n,
         "high_trust_wilson": {
             "k": k_high,

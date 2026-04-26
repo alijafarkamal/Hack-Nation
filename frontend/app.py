@@ -26,7 +26,12 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 import api_client
-from map_component import covered_states_from_names, create_india_map, desert_states_from_names
+from map_component import (
+    covered_states_from_names,
+    create_india_map,
+    desert_states_from_names,
+    scatter_points_in_state,
+)
 from state_centroids import INDIA_STATE_CENTROIDS
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -1210,124 +1215,233 @@ def _tab_planner() -> None:
         st.download_button("Download Planning Report (PDF)", data=pdf_bytes, file_name="carecompass_india_mission_planner.pdf", mime="application/pdf")
 
 
+# ── Map helpers ─────────────────────────────────────────────────────────────
+
+def _distribute_desert_pins_to_states(desert_states: list[str], pin_list: list[str]) -> dict[str, int]:
+    """Split total desert-PIN list evenly across desert states (UI density proxy)."""
+    states = sorted([s for s in desert_states if s])
+    n_s, n_p = len(states), len(pin_list)
+    if n_s == 0:
+        return {}
+    base, rem = divmod(n_p, n_s)
+    out: dict[str, int] = {}
+    for i, s in enumerate(states):
+        out[s] = base + (1 if i < rem else 0)
+    return out
+
+
+def _build_heatmap_tuples(d_states: list[str], pin_counts: dict[str, int]) -> list[tuple[float, float, float]]:
+    """Lat, lon, weight points for Folium HeatMap (density by estimated PIN count)."""
+    pts: list[tuple[float, float, float]] = []
+    for s in d_states:
+        n = max(0, int(pin_counts.get(s, 0)))
+        n_pts = max(4, min(48, 4 + min(n, 20) * 2))
+        pts.extend(scatter_points_in_state(s, n_pts))
+    return pts
+
+
 # ── Tab 3: Map ──────────────────────────────────────────────────────────────
 
 def _tab_map() -> None:
     st.markdown(f'<p class="disclaimer">{DISCLAIMER_POLICY}</p>', unsafe_allow_html=True)
 
     st.markdown('<div class="section-card"><h4>Medical Desert Heatmap</h4>', unsafe_allow_html=True)
-    st.caption("Red circles = states with zero specialty coverage (medical desert). Green circles = states with confirmed coverage. Select a specialty and click Load.")
-    col1, col2, col3 = st.columns([2, 1, 2])
+    st.caption(
+        "The map **updates automatically** when you change specialty or state/PIN level. "
+        "Red = desert pressure (HeatMap + circles sized by desert-PIN count). Green = covered states."
+    )
+    _map_specs = [
+        "emergency", "cardiology", "ophthalmology", "orthopedics",
+        "obgyn", "pediatrics", "oncology", "neurology", "dialysis",
+        "trauma", "icu", "surgery", "dentistry", "psychiatry", "neonatology", "Custom…",
+    ]
+    col1, col2 = st.columns([2, 1])
     with col1:
-        _map_specs = ["emergency", "cardiology", "ophthalmology", "orthopedics",
-                      "obgyn", "pediatrics", "oncology", "neurology", "dialysis",
-                      "trauma", "icu", "surgery", "dentistry", "psychiatry", "neonatology", "Custom…"]
         spec_choice = st.selectbox("Specialty", _map_specs, index=0, key="map_spec_sel")
         if spec_choice == "Custom…":
             spec = st.text_input("Enter specialty", key="map_spec_custom", placeholder="e.g. neonatology") or "emergency"
         else:
             spec = spec_choice
     with col2:
-        level = st.radio("Level", ["state", "pin"], horizontal=True, key="map_lev")
-    with col3:
+        level = st.radio("Aggregation level", ["state", "pin"], horizontal=True, key="map_lev")
+
+    if level == "state":
         _state_list = sorted(INDIA_STATE_CENTROIDS.keys())
         region_sel = st.multiselect(
-            "Filter by state(s) — searchable",
+            "Filter by state(s) — type to search",
             options=_state_list,
             default=[],
             key="map_filt_states",
-            placeholder="Type to search states…",
+            placeholder="Empty = all India",
         )
-        region_q = region_sel  # list; empty = show all
-    load_btn = st.button("Load Desert Heatmap", type="primary", key="map_load", use_container_width=True)
+        region_q = list(region_sel)
+        map_six = ""
+    else:
+        st.caption("At **pin** level the API returns desert PIN codes. Enter a 6-digit PIN to spotlight risk in that area.")
+        map_six = st.text_input("6-digit PIN (optional spotlight)", key="map_pin_6", max_chars=6, placeholder="e.g. 800001")
+        region_q = []
+
     st.markdown('</div>', unsafe_allow_html=True)
 
-    if load_btn:
-        with st.spinner(f"Fetching {spec} coverage data…"):
+    spec_key = (spec or "").strip().lower()
+    params_key = (spec_key, str(level).lower())
+    if st.session_state.get("map_last_params") != params_key:
+        with st.spinner(f"Loading coverage for {spec.strip()} at {level} level…"):
             try:
                 st.session_state.map_deserts = api_client.get_policy_deserts(spec.strip(), str(level))
                 st.session_state.map_spec_loaded = spec.strip()
+                st.session_state.map_last_params = params_key
             except Exception as e:
                 st.error(_safe_str(e))
                 st.session_state.map_deserts = None
+                st.session_state.map_last_params = params_key  # avoid refetch loop on every rerun
 
     des = st.session_state.get("map_deserts")
     loaded_spec = st.session_state.get("map_spec_loaded", spec)
+    d_pins = [str(p) for p in (des or {}).get("desert_pins") or [] if p and str(p).strip() not in ("null", "None", "")]
+
+    # PIN spotlight: fetch once per 6-digit code
+    spotlight: dict[str, Any] | None = None
+    map_center: tuple[float, float] | None = None
+    zoom_override: int | None = None
+    if level == "pin" and map_six and len(map_six) == 6 and map_six.isdigit():
+        pr_cache_key = f"map_pr_{map_six}"
+        if st.session_state.get("map_last_pin_fetched") != pr_cache_key:
+            try:
+                st.session_state[pr_cache_key] = api_client.get_pin_risk(map_six)
+                st.session_state.map_last_pin_fetched = pr_cache_key
+            except Exception as e:
+                st.session_state[pr_cache_key] = {"error": str(e)}
+                st.session_state.map_last_pin_fetched = pr_cache_key
+        pr = st.session_state.get(pr_cache_key) or {}
+        if pr.get("error"):
+            st.warning(_fill(str(pr.get("error")), "PIN risk unavailable"))
+        else:
+            stt = pr.get("state_normalized")
+            n_f = pr.get("facility_count", 0)
+            w = pr.get("high_trust_wilson") or {}
+            wtxt = _wilson_text(w) if isinstance(w, dict) else "—"
+            if stt and stt in INDIA_STATE_CENTROIDS:
+                lat, lon = INDIA_STATE_CENTROIDS[stt]
+                map_center = (float(lat), float(lon))
+                zoom_override = 6
+                html = (
+                    f"<b>PIN {map_six}</b><br><b>State:</b> {stt}<br>"
+                    f"<b>Facilities in PIN:</b> {n_f}<br><b>Wilson (high-trust):</b> {wtxt}"
+                )
+                spotlight = {"label": f"PIN {map_six} · {stt}", "lat": lat, "lon": lon, "html": html}
+            else:
+                st.caption("PIN risk loaded; map placement needs state in API response (try another PIN).")
 
     if not des:
-        st.info("Select a specialty above and click **Load Desert Heatmap** to see red/green coverage circles for all Indian states.")
-        fmap = create_india_map(specialty=spec)
-        st_folium(fmap, key="map_empty", width=None, height=500, use_container_width=True)
+        st.info("Change **specialty** or **level** — data loads automatically (no button needed).")
+        fmap = create_india_map(specialty=spec, map_center=map_center, zoom_start=zoom_override)
+        st_folium(
+            fmap, key="map_empty", width=None, height=500, use_container_width=True,
+        )
         return
 
-    # Build desert and covered state lists
     d_states: list[str] = _clean_state_list(des.get("desert_states") or [])
     all_known = set(INDIA_STATE_CENTROIDS.keys())
     c_states: list[str] = sorted(all_known - set(d_states))
 
     if region_q:
-        # region_q is now a list from multiselect
         sel_set = set(region_q)
         d_states = [s for s in d_states if s in sel_set]
         c_states = [s for s in c_states if s in sel_set]
 
-    # Build overlay data
-    desert_overlay = desert_states_from_names(d_states, specialty=loaded_spec)
+    pin_counts = _distribute_desert_pins_to_states(d_states, d_pins)
+    heat_tuples = _build_heatmap_tuples(d_states, pin_counts) if d_states else []
+
+    desert_overlay = desert_states_from_names(
+        d_states, specialty=loaded_spec, pin_counts=pin_counts,
+    )
     covered_overlay = covered_states_from_names(c_states, specialty=loaded_spec)
 
-    # Map title banner
     st.markdown(
-        f'<div style="background:#1e3a5f;color:#fff;padding:0.5rem 1rem;border-radius:0.5rem;margin-bottom:0.4rem;font-size:0.88rem;">'
-        f'<b>Specialty:</b> {loaded_spec.title()} &nbsp;·&nbsp; '
-        f'<span style="color:#f87171;font-weight:700;">{len(d_states)} desert states</span> &nbsp;·&nbsp; '
-        f'<span style="color:#4ade80;font-weight:700;">{len(c_states)} covered states</span>'
-        f'</div>',
+        f'<div style="background:#1e3a5f;color:#fff;padding:0.5rem 1rem;border-radius:0.5rem;margin:0.4rem 0;font-size:0.88rem;">'
+        f'<b>Showing:</b> {loaded_spec.title()} &nbsp;|&nbsp; <b>Level:</b> {level.upper()} &nbsp;|&nbsp; '
+        f'<span style="color:#fca5a5;">{len(d_states)} desert states</span> &nbsp;|&nbsp; '
+        f'<span style="color:#86efac;">{len(c_states)} covered</span> &nbsp;|&nbsp; '
+        f'<span style="color:#fde68a;">{len(d_pins)} desert PINs</span>'
+        f"</div>",
         unsafe_allow_html=True,
     )
+
+    ch_col, map_col = st.columns([0.35, 0.65])
+    with ch_col:
+        st.markdown("**Desert pressure by state** (PIN count share)")
+        if d_states and pin_counts:
+            df_b = (
+                pd.DataFrame([{"State": s, "Desert PINs (est.)": pin_counts.get(s, 0)} for s in d_states])
+                .sort_values("Desert PINs (est.)", ascending=True)
+            )
+            figb = go.Figure(
+                go.Bar(
+                    y=df_b["State"],
+                    x=df_b["Desert PINs (est.)"],
+                    orientation="h",
+                    marker_color="#dc2626",
+                ),
+            )
+            figb.update_layout(
+                title=f"Top coverage gaps — {loaded_spec[:24]}",
+                height=max(280, 28 * len(df_b)),
+                margin=dict(l=0, r=8, t=40, b=8),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(figb, use_container_width=True)
+        else:
+            st.caption("No desert states in this view.")
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Desert states", len(d_states))
+        m2.metric("Covered states", len(c_states))
+        m3.metric("Desert PINs", len(d_pins))
 
     fmap = create_india_map(
         desert_states=desert_overlay,
         covered_states=covered_overlay,
         specialty=loaded_spec,
         use_clustering=False,
+        heatmap_desert_points=heat_tuples,
+        map_center=map_center,
+        zoom_start=zoom_override,
+        spotlight=spotlight,
     )
-    # Dynamic key forces re-render when specialty or desert list changes
-    map_key = f"map_{loaded_spec}_{len(d_states)}_{'_'.join(sorted(region_q)) if isinstance(region_q, list) else region_q}"
-    st_folium(fmap, key=map_key, width=None, height=680, use_container_width=True)
+    rkey = "_".join(sorted(region_q)) if region_q else "all"
+    map_key = f"map_{loaded_spec}_{level}_{len(d_states)}_{rkey}_{map_six or 'x'}"
 
-    # Metrics row
-    mc1, mc2, mc3 = st.columns(3)
-    mc1.markdown(f'<div class="metric-box"><p class="num" style="color:#dc2626">{len(d_states)}</p><p class="label">Desert States</p></div>', unsafe_allow_html=True)
-    mc2.markdown(f'<div class="metric-box"><p class="num" style="color:#059669">{len(c_states)}</p><p class="label">Covered States</p></div>', unsafe_allow_html=True)
-    d_pins = [str(p) for p in (des.get("desert_pins") or []) if p and str(p).strip() not in ("null", "None", "")]
-    mc3.markdown(f'<div class="metric-box"><p class="num">{len(d_pins)}</p><p class="label">Desert PINs</p></div>', unsafe_allow_html=True)
+    with map_col:
+        st_folium(fmap, key=map_key, width=None, height=680, use_container_width=True)
 
     st.markdown("""
 <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center;font-size:0.82rem;
 color:#475569;margin:0.5rem 0;padding:0.6rem 0.8rem;background:#f8fafc;
 border:1px solid #e2e8f0;border-radius:0.6rem;">
-  <span style="font-weight:700;color:#1e293b;">Legend:</span>
-  <span><span style="color:#ef4444;font-size:1.1rem;">●</span> Red circle — Medical desert (zero coverage)</span>
-  <span><span style="color:#22c55e;font-size:1.1rem;">●</span> Green circle — State has coverage</span>
-  <span><span style="color:#dc2626;font-weight:700;">ABR</span> Red badge — desert state</span>
-  <span><span style="color:#16a34a;font-weight:700;">ABR</span> Green badge — covered state</span>
+  <span style="font-weight:700;color:#1e293b;">Layers:</span>
+  <span>HeatMap — desert pressure</span>
+  <span>Red circles — proportional to PIN share</span>
+  <span>Green — covered</span>
+  <span>Fullscreen + mini-map: top-right controls</span>
 </div>""", unsafe_allow_html=True)
 
     col_d, col_c = st.columns(2)
     with col_d:
         if d_states:
-            with st.expander(f"Desert States ({len(d_states)})"):
+            with st.expander(f"Desert states ({len(d_states)})"):
                 st.markdown(" ".join(f'<span class="badge-desert">{s}</span>' for s in d_states), unsafe_allow_html=True)
     with col_c:
         if c_states:
-            with st.expander(f"Covered States ({len(c_states)})"):
+            with st.expander(f"Covered states ({len(c_states[:80])}…)"):
                 st.markdown(" ".join(f'<span class="badge-covered">{s}</span>' for s in c_states[:60]), unsafe_allow_html=True)
 
     if d_pins:
-        with st.expander(f"Desert PIN codes ({len(d_pins)})"):
-            st.markdown(" ".join(f'<span class="badge-desert">{p}</span>' for p in d_pins[:100]), unsafe_allow_html=True)
+        with st.expander(f"Desert PINs ({min(120, len(d_pins))} shown)"):
+            st.markdown(" ".join(f'<span class="badge-desert">{p}</span>' for p in d_pins[:120]), unsafe_allow_html=True)
 
-    st.download_button("Download Desert States (TXT)", data="\n".join(d_states), file_name=f"desert_states_{loaded_spec}.txt")
+    st.download_button("Download desert state list (TXT)", data="\n".join(d_states), file_name=f"desert_states_{loaded_spec}.txt")
 
 
 # ── Tab 4: Query Analytics ──────────────────────────────────────────────────
