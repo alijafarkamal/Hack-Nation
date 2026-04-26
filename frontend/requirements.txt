@@ -8,3 +8,5 @@ matplotlib>=3.8
 fpdf2>=2.8
 requests>=2.32
 pandas>=2.2
+pyvista>=0.45
+stpyvista>=0.2

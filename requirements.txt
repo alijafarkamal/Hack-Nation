@@ -24,6 +24,8 @@ plotly>=5.18.0
 kaleido>=0.2.1
 matplotlib>=3.8
 fpdf2>=2.8.0
+pyvista>=0.45
+stpyvista>=0.2
 requests>=2.31.0
 
 # API

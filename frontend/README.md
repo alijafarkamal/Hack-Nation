@@ -100,7 +100,9 @@ For facilities with missing data (phone, hours, website), the enrichment agent:
 
 ## System Architecture tab (3D graph methodology)
 
-- **3d-force-graph** (WebGL / Three.js) embedded via `st.components.html`: dark canvas, color-coded **nodes** (user → LangGraph agents → Databricks services → product UI + referral) and **links** (fan-out, synthesis, observability). Drag nodes, scroll zoom, hover labels; **auto-rotate** when supported. Static **topology** illustration (not a live Neo4j query).
+- **Primary:** **PyVista + stpyvista** — colored spheres and tubes in a dark scene (VTK / WebGL embed). On headless hosts, `stpyvista.utils.start_xvfb` is used when available.
+- **Fallback:** **Plotly `Scatter3d`** — same node positions and edges if PyVista cannot render (typical on some Streamlit Cloud builds). You should always see a 3D chart, not a blank panel.
+- Static **topology** illustration (not a live Neo4j query).
 
 ## Deployment
 
