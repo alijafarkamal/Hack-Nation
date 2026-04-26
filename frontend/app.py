@@ -973,7 +973,12 @@ def _render_inline_referral(*, fname: str, phone: str, email: str, triage_red: l
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-def _render_full_trust_report(mr: dict[str, Any], ts: dict[str, Any] | None = None) -> None:
+def _render_full_trust_report(
+    mr: dict[str, Any],
+    ts: dict[str, Any] | None = None,
+    *,
+    referral_allowed: bool = True,
+) -> None:
     """Trust Scorer, contact details, and referral — one card per facility (no duplicate list)."""
     trust_artifacts = mr.get("trust_artifacts")
     if not trust_artifacts or not isinstance(trust_artifacts, dict):
@@ -1017,6 +1022,8 @@ padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
     vc4.markdown(f'<div class="metric-box"><p class="num">{n}</p><p class="label">Total Analyzed</p></div>', unsafe_allow_html=True)
 
     st.markdown("**Per-facility verification, contacts, and referral**")
+    if not referral_allowed:
+        st.caption("Referral is disabled until **Clinician review — human in the loop** is approved above.")
     facilities_shown: list[dict[str, Any]] = []
     for idx, fac in enumerate(per_fac[:12]):
         fname = fac.get("facility", "Unknown")
@@ -1082,13 +1089,18 @@ padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
             )
             st.markdown("<br/>", unsafe_allow_html=True)
             rkey = abs(hash((fname, idx))) % 1_000_000_000
-            if st.button("Refer this facility", key=f"ref_trust_{idx}_{rkey}", type="secondary"):
+            if st.button(
+                "Refer this facility",
+                key=f"ref_trust_{idx}_{rkey}",
+                type="secondary",
+                disabled=not referral_allowed,
+                help="Requires clinician approval (human in the loop) above" if not referral_allowed else None,
+            ):
                 st.session_state.ref_facility_name = fname
                 st.session_state.ref_phone = phone or ""
                 st.session_state.ref_patient_summary = st.session_state.get("triage_sym_area", "")
                 st.session_state.ref_red_flags = list(triage_red)
                 st.session_state.ref_email = email or ""
-                # toggle inline form: close if same facility clicked again
                 if st.session_state.get("ref_inline_open") == idx:
                     st.session_state.ref_inline_open = None
                 else:
@@ -1100,9 +1112,10 @@ padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
         if notes:
             st.markdown(f'<span class="fac-evidence">{_clean_markdown(notes[:200])}</span>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
-        # Inline referral form — shown immediately below the card when clicked
-        if st.session_state.get("ref_inline_open") == idx:
+        if st.session_state.get("ref_inline_open") == idx and referral_allowed:
             _render_inline_referral(fname=fname, phone=phone, email=email, triage_red=triage_red, ts=ts)
+        elif st.session_state.get("ref_inline_open") == idx and not referral_allowed:
+            st.warning("Approve **Clinician review — human in the loop** above to open the referral handoff.")
         st.markdown('<hr style="margin:0.3rem 0;border:none;border-top:1px solid #f1f5f9;">', unsafe_allow_html=True)
         facilities_shown.append({
             "Facility": fname, "State": state, "PIN": str(pin), "Type": _humanize(str(ftype)),
@@ -1682,6 +1695,7 @@ Genie Text-to-SQL · gte-large-en Vector Search · Qwen 3 80B Model Serving · U
 | **Graceful degradation** | Graph continues on partial Databricks service failures |
 | **PDF mission reports** | Shareable NGO planning artifact with embedded Plotly charts |
 | **Query analytics log** | Session usage as a secondary public-health demand signal |
+| **Human in the loop (HITL)** | Clinician notes + explicit approval before referral or SMS for each match session |
             """.strip()
         )
 
@@ -1748,11 +1762,65 @@ def _tab_architecture() -> None:
 
 # ── Tab 1: Triage & Matching ────────────────────────────────────────────────
 
+def _sync_hitl_for_match(mr: dict[str, Any] | None, ts: dict[str, Any] | None) -> None:
+    """Reset HITL approval when the triage / match session id changes."""
+    if not mr and not ts:
+        return
+    sid = (ts or {}).get("session_id") or (mr or {}).get("session_id")
+    if sid is None or str(sid).strip() in ("", "null", "None"):
+        return
+    sid = str(sid).strip()
+    prev = st.session_state.get("hitl_last_match_session")
+    if prev != sid:
+        st.session_state.hitl_last_match_session = sid
+        st.session_state.hitl_approved = False
+        st.session_state.ref_inline_open = None
+
+
+def _render_clinician_hitl_panel() -> None:
+    """Human in the loop: optional clinician notes; approve before referral / SMS (demo HITL)."""
+    st.markdown(
+        '<div class="section-card" style="border-left:4px solid #138808;">',
+        unsafe_allow_html=True,
+    )
+    st.markdown("#### Clinician review — human in the loop")
+    st.caption(
+        "Model output is for decision support, not a diagnosis. Add optional notes, then **approve** to document "
+        "that a person reviewed the match list before any referral or SMS handoff is enabled."
+    )
+    st.text_area(
+        "Optional — clinical notes or corrections to the agent output",
+        key="hitl_clinician_notes",
+        height=78,
+        placeholder="e.g. Route to a higher-acuity site; call ahead for bed; disagree with X — override locally",
+    )
+    c1, c2, c3 = st.columns([1, 1, 2])
+    with c1:
+        already = bool(st.session_state.get("hitl_approved", False))
+        if st.button("Approve for referral / SMS", type="primary", key="hitl_approve_btn", disabled=already):
+            st.session_state.hitl_approved = True
+            st.rerun()
+    with c2:
+        if st.button("Clear approval", key="hitl_reset_btn", disabled=not st.session_state.get("hitl_approved", False)):
+            st.session_state.hitl_approved = False
+            st.rerun()
+    with c3:
+        if st.session_state.get("hitl_approved"):
+            notes = (st.session_state.get("hitl_clinician_notes") or "").strip()
+            ntxt = f" — Notes on file: {notes[:200]}{'…' if len(notes) > 200 else ''}" if notes else ""
+            st.success("Handoff approved for this match session. Referral and SMS actions are enabled." + ntxt)
+        else:
+            st.info("Referral and SMS are disabled until a clinician approves this match — simple human-in-the-loop control.")
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.divider()
+
+
 def _tab_triage() -> None:
     st.markdown(f'<p class="disclaimer-critical">{DISCLAIMER_TRIAGE}</p>', unsafe_allow_html=True)
     for key, default in [
         ("triage_session", None), ("match_result", None), ("triage_sym_area", ""), ("triage_region", ""),
         ("ref_red_flags", []), ("ref_email", ""), ("ref_inline_open", None),
+        ("hitl_approved", False), ("hitl_last_match_session", None),
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
@@ -1829,6 +1897,8 @@ def _tab_triage() -> None:
     # ── Match results: Trust Scorer FIRST, then facility cards ────────────
     if mr:
         st.markdown(f'<p class="disclaimer">{mr.get("safety_disclaimer") or DISCLAIMER_MATCH}</p>', unsafe_allow_html=True)
+        _sync_hitl_for_match(mr, ts)
+        _render_clinician_hitl_panel()
 
         # Enrich All at the top — prominent, before Trust Scorer
         fac_names = _extract_facility_names_from_mr(mr)
@@ -1857,7 +1927,11 @@ def _tab_triage() -> None:
         _render_thought_process(mr)
 
         # 2. Trust Scorer + contacts + refer (single list, no duplicate facility block)
-        _render_full_trust_report(mr, ts=ts)
+        _render_full_trust_report(
+            mr,
+            ts=ts,
+            referral_allowed=bool(st.session_state.get("hitl_approved", False)),
+        )
 
         # 3. Supporting evidence + citations pushed to bottom expanders ────
         out_md = mr.get("graph_summary") or mr.get("final_answer")
@@ -1874,20 +1948,23 @@ def _tab_triage() -> None:
 
     if mr:
         rpv = st.session_state.get("ref_preview")
-        if rpv:
+        if rpv and st.session_state.get("hitl_approved", False):
             st.divider()
             st.markdown('<div class="section-card"><h4>Last Referral Preview (SMS)</h4>', unsafe_allow_html=True)
             st.caption("Use the inline referral form on each facility above. This section lets you send SMS for the last previewed referral.")
             with st.expander("Preview JSON"):
                 st.json(rpv)
             pid = rpv.get("preview_id")
-            if pid and st.button("Send SMS", type="secondary"):
+            if pid and st.button("Send SMS", type="secondary", key="hitl_sms_send"):
                 try:
                     send = api_client.referral_send(preview_id=str(pid), to_phone=str(st.session_state.get("ref_to_phone") or ""))
                     st.success(f"Sent via {send.get('mode', '—')} · Audit ID: {send.get('audit_id', '—')}")
                 except Exception as e:
                     st.error(_safe_str(e))
             st.markdown('</div>', unsafe_allow_html=True)
+        elif rpv and not st.session_state.get("hitl_approved", False):
+            st.divider()
+            st.info("A referral preview is saved, but **Send SMS** stays disabled until **Clinician review** is approved (human in the loop).")
 
 
 # ── Tab 2: Mission Planner ──────────────────────────────────────────────────
