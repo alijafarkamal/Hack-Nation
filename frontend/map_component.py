@@ -118,6 +118,42 @@ def _state_marker_html(name: str, is_desert: bool) -> str:
     )
 
 
+_VERDICT_COLOR = {
+    "VERIFIED": ("#15803d", "#22c55e", "✓"),
+    "REVIEW":   ("#b45309", "#fbbf24", "⚠"),
+    "SUSPICIOUS": ("#991b1b", "#ef4444", "✗"),
+}
+
+
+def _trust_pin_html(verdict: str, score: float) -> str:
+    border, bg, sym = _VERDICT_COLOR.get(verdict, ("#6b7280", "#94a3b8", "?"))
+    pct = int(score * 100)
+    return (
+        f"<div style='background:{bg};color:#fff;border:2px solid {border};"
+        f"border-radius:50%;width:30px;height:30px;line-height:30px;"
+        f"text-align:center;font-size:11px;font-weight:800;"
+        f"box-shadow:0 2px 6px rgba(0,0,0,.5);' title='{verdict} {pct}%'>"
+        f"{sym}</div>"
+    )
+
+
+def build_hotspot_heatmap(covered: list[dict[str, Any]], spread_deg: float = 1.0) -> list[tuple[float, float, float]]:
+    """Generate heatmap points from covered states to show specialty supply concentration."""
+    pts: list[tuple[float, float, float]] = []
+    for d in covered or []:
+        lat, lon = d.get("lat"), d.get("lon")
+        if lat is None or lon is None:
+            continue
+        state = d.get("state", "")
+        rng = _stable_rng(state + "hotspot")
+        n_pts = 18
+        for _ in range(n_pts):
+            dlat = rng.uniform(-spread_deg, spread_deg) * 0.5
+            dlon = rng.uniform(-spread_deg, spread_deg) * 0.5
+            pts.append((float(lat) + dlat, float(lon) + dlon, 0.6 + rng.random() * 0.4))
+    return pts
+
+
 def create_india_map(
     facilities: list[dict[str, Any]] | None = None,
     desert_states: list[dict[str, Any]] | None = None,
@@ -125,6 +161,8 @@ def create_india_map(
     use_clustering: bool = True,
     specialty: str = "",
     heatmap_desert_points: list[tuple[float, float, float]] | None = None,
+    heatmap_hotspot_points: list[tuple[float, float, float]] | None = None,
+    trust_pins: list[dict[str, Any]] | None = None,
     map_center: tuple[float, float] | None = None,
     zoom_start: int | None = None,
     spotlight: dict[str, Any] | None = None,
@@ -150,6 +188,52 @@ def create_india_map(
             gradient={0.2: "yellow", 0.5: "orange", 0.8: "red", 1.0: "darkred"},
         )
         hm.add_to(m)
+
+    # HeatMap — specialty supply concentration / hotspot view
+    if heatmap_hotspot_points:
+        hm_hot = HeatMap(
+            heatmap_hotspot_points,
+            name="Specialty supply concentration (hotspot)",
+            min_opacity=0.35,
+            max_zoom=10,
+            radius=30,
+            blur=24,
+            gradient={0.2: "#bfdbfe", 0.5: "#3b82f6", 0.8: "#1d4ed8", 1.0: "#1e3a8a"},
+        )
+        hm_hot.add_to(m)
+
+    # Trust-verified facility pins from last triage run
+    if trust_pins:
+        tp_group = folium.FeatureGroup(name="Trust-verified facilities (last triage)", show=True)
+        for tp in trust_pins:
+            lat, lon = tp.get("lat"), tp.get("lon")
+            if lat is None or lon is None:
+                continue
+            verdict = str(tp.get("verdict", "REVIEW"))
+            score = float(tp.get("score", 0.5))
+            name = str(tp.get("name", "Facility"))
+            flags = tp.get("flags") or []
+            flag_html = "".join(f"<br>⚠ {f[:80]}" for f in flags[:3])
+            border, bg, sym = _VERDICT_COLOR.get(verdict, ("#6b7280", "#94a3b8", "?"))
+            popup_html = (
+                f"<div style='min-width:200px;font-family:sans-serif;'>"
+                f"<b style='font-size:13px;'>{name}</b><br>"
+                f"<span style='color:{border};font-weight:700;'>{sym} {verdict}</span>"
+                f" &nbsp; Trust: <b>{int(score*100)}%</b>"
+                f"{flag_html}"
+                f"</div>"
+            )
+            folium.Marker(
+                location=[float(lat), float(lon)],
+                popup=folium.Popup(popup_html, max_width=300),
+                tooltip=f"{sym} {name[:50]} — {verdict} ({int(score*100)}%)",
+                icon=folium.DivIcon(
+                    html=_trust_pin_html(verdict, score),
+                    icon_size=(30, 30),
+                    icon_anchor=(15, 15),
+                ),
+            ).add_to(tp_group)
+        tp_group.add_to(m)
 
     if covered_states:
         cov_group = folium.FeatureGroup(name="Covered states (has facilities)", show=True)

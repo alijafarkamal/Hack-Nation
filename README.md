@@ -108,7 +108,7 @@ CareCompass solves all four.
 | **Agent orchestration** | LangGraph 1.0 `StateGraph` | Supervisor → parallel fan-out → synthesis |
 | **LLM inference** | Databricks Model Serving (Qwen 3 80B) | All LLM calls via served endpoint |
 | **Structured queries** | Databricks Genie (Text-to-SQL) | Natural language → SQL over Unity Catalog |
-| **Semantic retrieval** | Databricks Mosaic AI Vector Search | `databricks-gte-large-en` embeddings |
+| **Hybrid semantic retrieval** | Databricks Mosaic AI Vector Search | `databricks-gte-large-en` embeddings; semantic intent search over unstructured facility text — understands "difficulty breathing" → "Respiratory ICU" + "Oxygen Concentrator" without keyword matching |
 | **Observability** | MLflow 3 | Per-node `@mlflow.trace`, correlation ID propagation |
 | **Structured storage** | Databricks Unity Catalog | Delta tables — 10,002 facilities, 9,866 valid PINs |
 | **Backend API** | FastAPI + Pydantic + Uvicorn | REST layer, `X-Request-Id` middleware |
@@ -154,7 +154,7 @@ Calls **Databricks Genie** with the normalised query. Genie generates SQL agains
 
 ### 3. RAG Agent (`src/nodes/rag_agent.py`)
 
-Queries **Databricks Mosaic AI Vector Search** using `databricks-gte-large-en` embeddings. Returns semantic top-k hits on facility descriptions and unstructured notes. Each hit becomes a citation with a confidence score. Handles schema drift gracefully — unknown columns are surfaced as warnings, not failures.
+Queries **Databricks Mosaic AI Vector Search** using `databricks-gte-large-en` embeddings for semantic intent matching — understands that "difficulty breathing" should match "Respiratory ICU" and "Oxygen Concentrator" without keyword overlap. Returns semantic top-k hits on facility descriptions and unstructured notes; each hit becomes a citation with a confidence score. Handles schema drift gracefully — unknown columns are surfaced as warnings, not failures.
 
 ---
 
@@ -298,13 +298,27 @@ Judges can copy the `correlation_id` from the UI and search it in the Databricks
 - **PIN risk lookup** — 6-digit PIN → facility count + high-trust Wilson interval + sample facilities
 - **Downloadable PDF report** — executive summary, embedded Plotly charts (Kaleido; matplotlib fallback), policy citations, facility lists
 
-### Tab 3 — Desert Map
+### Tab 3 — Desert Map (3 view modes)
+
+**Coverage Gap View** (default)
 - Full-width Folium map, centred on India
 - **HeatMap layer** — desert pressure intensity by state (PIN density distribution)
 - **Red circles** at state centroids — radius proportional to estimated desert PIN share
 - **Green circles** — covered states for selected specialty
-- **Coverage gap chart** below map — horizontal bar chart of desert states (PIN counts at `pin` level; presence indicator at `state` level)
-- Live specialty + level selectors — map updates automatically, no button needed
+- Coverage gap bar chart below map (PIN counts at `pin` level; presence indicator at `state` level)
+
+**Specialty Hotspot View** (demand-side)
+- **Blue intensity heatmap** — specialty supply concentration per state, used as a proxy for local care burden
+- Planners see at a glance where a specialty is already concentrated vs where there is zero supply
+- Framing: "We map provider concentration as a proxy for local burden — not disease prevalence, but a capital allocation signal for NGO resource deployment"
+
+**Trust Verified Facilities** (per-facility trust pins)
+- Plots individual facility markers from the last triage run, coloured by trust verdict:
+  - 🟢 `✓ VERIFIED` — all three trust layers agree
+  - 🟡 `⚠ REVIEW` — one or more flags or disagreements
+  - 🔴 `✗ SUSPICIOUS` — combined trust score < 0.35, major contradictions found
+- Click any pin to see the verdict, trust score %, and contradiction flags
+- Uses exact lat/lon from Vector Search results; falls back to state centroid with jitter when coordinates are absent
 
 ### Tab 4 — Query Analytics
 - Session-scoped log of all triage queries

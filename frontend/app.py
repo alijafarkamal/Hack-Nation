@@ -42,6 +42,7 @@ except Exception:  # pragma: no cover
 
 import api_client
 from map_component import (
+    build_hotspot_heatmap,
     covered_states_from_names,
     create_india_map,
     desert_states_from_names,
@@ -2085,14 +2086,68 @@ def _build_heatmap_tuples(d_states: list[str], pin_counts: dict[str, int]) -> li
 
 # ── Tab 3: Map ──────────────────────────────────────────────────────────────
 
+def _extract_trust_pins(mr: dict | None) -> list[dict]:
+    """Extract trust-scored facility pins from a match result, using state centroids for lat/lon."""
+    if not mr:
+        return []
+    trust_arts = mr.get("trust_artifacts") or {}
+    per_fac = trust_arts.get("per_facility") or []
+    # Build lat/lon index from search_result if available
+    coord_index: dict[str, tuple[float, float]] = {}
+    for hit in (mr.get("search_result") or []):
+        if not isinstance(hit, dict):
+            continue
+        name = str(hit.get("name") or "")
+        lat = hit.get("lat") or hit.get("latitude")
+        lon = hit.get("lon") or hit.get("longitude")
+        state = str(hit.get("state_normalized") or hit.get("state") or "")
+        if name and lat and lon:
+            try:
+                coord_index[name] = (float(lat), float(lon))
+            except (TypeError, ValueError):
+                pass
+        elif name and state and state in INDIA_STATE_CENTROIDS:
+            c = INDIA_STATE_CENTROIDS[state]
+            coord_index[name] = (float(c[0]) + (hash(name) % 100) * 0.01, float(c[1]) + (hash(name) % 50) * 0.01)
+    pins: list[dict] = []
+    for row in per_fac:
+        name = str(row.get("facility") or "")
+        verdict = str(row.get("final_verdict") or "REVIEW")
+        score = float(row.get("combined_trust_0_1") or 0.5)
+        flags = (row.get("all_flags") or [])[:3]
+        coords = coord_index.get(name)
+        det = row.get("deterministic") or {}
+        state = str(det.get("state_normalized") or det.get("state") or "")
+        if not coords and state and state in INDIA_STATE_CENTROIDS:
+            c = INDIA_STATE_CENTROIDS[state]
+            import hashlib as _hl
+            h = int(_hl.md5(name.encode()).hexdigest()[:6], 16)
+            coords = (float(c[0]) + (h % 100 - 50) * 0.008, float(c[1]) + (h % 70 - 35) * 0.008)
+        if coords:
+            pins.append({"name": name, "verdict": verdict, "score": score, "flags": flags,
+                         "lat": coords[0], "lon": coords[1]})
+    return pins
+
+
 def _tab_map() -> None:
     st.markdown(f'<p class="disclaimer">{DISCLAIMER_POLICY}</p>', unsafe_allow_html=True)
 
-    st.markdown('<div class="section-card"><h4>Medical Desert Heatmap</h4>', unsafe_allow_html=True)
-    st.caption(
-        "The map **updates automatically** when you change specialty or state/PIN level. "
-        "Red = desert pressure (HeatMap + circles sized by desert-PIN count). Green = covered states."
+    st.markdown('<div class="section-card"><h4>Medical Desert Intelligence Map</h4>', unsafe_allow_html=True)
+
+    # ── Map view mode toggle ──────────────────────────────────────────────────
+    view_mode = st.radio(
+        "Map view",
+        ["Coverage Gap View", "Specialty Hotspot View", "Trust Verified Facilities"],
+        horizontal=True,
+        key="map_view_mode",
     )
+    if view_mode == "Coverage Gap View":
+        st.caption("🔴 Red = medical desert (zero/low coverage) · 🟢 Green = covered states · HeatMap shows desert pressure intensity.")
+    elif view_mode == "Specialty Hotspot View":
+        st.caption("🔵 Blue intensity = specialty supply concentration — a proxy for local care burden and provider density. Planners can deploy resources to complement, not duplicate, existing supply.")
+    else:
+        st.caption("🟢 VERIFIED · 🟡 REVIEW · 🔴 SUSPICIOUS — facility trust pins from your last triage run, placed at approximate state locations.")
+
     _map_specs = [
         "emergency", "cardiology", "ophthalmology", "orthopedics",
         "obgyn", "pediatrics", "oncology", "neurology", "dialysis",
@@ -2215,18 +2270,32 @@ def _tab_map() -> None:
         unsafe_allow_html=True,
     )
 
+    # ── Build map layers based on selected view mode ──────────────────────────
+    trust_pins_data: list[dict] = []
+    hotspot_pts: list[tuple[float, float, float]] = []
+
+    if view_mode == "Trust Verified Facilities":
+        trust_pins_data = _extract_trust_pins(st.session_state.get("match_result"))
+        if not trust_pins_data:
+            st.info("Run a **Triage & Match** query first — trust pins will appear here after analysis.")
+
+    elif view_mode == "Specialty Hotspot View":
+        hotspot_pts = build_hotspot_heatmap(covered_overlay)
+
     fmap = create_india_map(
-        desert_states=desert_overlay,
-        covered_states=covered_overlay,
+        desert_states=desert_overlay if view_mode == "Coverage Gap View" else None,
+        covered_states=covered_overlay if view_mode in ("Coverage Gap View", "Specialty Hotspot View") else None,
         specialty=loaded_spec,
         use_clustering=False,
-        heatmap_desert_points=heat_tuples,
+        heatmap_desert_points=heat_tuples if view_mode == "Coverage Gap View" else None,
+        heatmap_hotspot_points=hotspot_pts if view_mode == "Specialty Hotspot View" else None,
+        trust_pins=trust_pins_data if view_mode == "Trust Verified Facilities" else None,
         map_center=map_center,
         zoom_start=zoom_override,
         spotlight=spotlight,
     )
     rkey = "_".join(sorted(region_q)) if region_q else "all"
-    map_key = f"map_{loaded_spec}_{level}_{len(d_states)}_{rkey}_{map_six or 'x'}"
+    map_key = f"map_{loaded_spec}_{level}_{len(d_states)}_{rkey}_{map_six or 'x'}_{view_mode[:3]}"
 
     st_folium(fmap, key=map_key, width=None, height=680, use_container_width=True)
 
