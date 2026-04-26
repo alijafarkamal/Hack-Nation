@@ -1373,48 +1373,8 @@ def main() -> None:
   <h1>🧭 CareCompass — India</h1>
   <p><span class="tagline">Agentic Healthcare Intelligence for 1.4 Billion Lives</span><br>
   Capability triage &nbsp;·&nbsp; medical desert mapping &nbsp;·&nbsp; trust verification &nbsp;·&nbsp; policy analytics<br>
-  <small>
-    Powered by Databricks: Genie &nbsp;·&nbsp; Vector Search &nbsp;·&nbsp; Model Serving &nbsp;·&nbsp; MLflow&nbsp;3 Tracing &nbsp;·&nbsp; Unity Catalog
-    &nbsp;&nbsp;|&nbsp;&nbsp;
-    Discovery &amp; Verification 35% &nbsp;·&nbsp; IDP 30% &nbsp;·&nbsp; Social Impact 25% &nbsp;·&nbsp; UX 10%
-  </small></p>
+  <small>Powered by Databricks: Genie &nbsp;·&nbsp; Vector Search &nbsp;·&nbsp; Model Serving &nbsp;·&nbsp; MLflow&nbsp;3 &nbsp;·&nbsp; Unity Catalog</small></p>
 </div>""", unsafe_allow_html=True)
-    # Challenge compliance strip
-    st.markdown("""
-<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.6rem;">
-  <div style="flex:1;min-width:160px;background:#fff7ed;border:1.5px solid #FF9933;border-radius:0.65rem;padding:0.55rem 0.8rem;text-align:center;">
-    <div style="font-size:1.2rem;font-weight:800;color:#c2410c;">35%</div>
-    <div style="font-size:0.68rem;color:#7c2d12;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Discovery &amp; Verification</div>
-  </div>
-  <div style="flex:1;min-width:160px;background:#eff6ff;border:1.5px solid #2563eb;border-radius:0.65rem;padding:0.55rem 0.8rem;text-align:center;">
-    <div style="font-size:1.2rem;font-weight:800;color:#1d4ed8;">30%</div>
-    <div style="font-size:0.68rem;color:#1e3a5f;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">IDP Innovation</div>
-  </div>
-  <div style="flex:1;min-width:160px;background:#f0fdf4;border:1.5px solid #138808;border-radius:0.65rem;padding:0.55rem 0.8rem;text-align:center;">
-    <div style="font-size:1.2rem;font-weight:800;color:#15803d;">25%</div>
-    <div style="font-size:0.68rem;color:#14532d;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Social Impact &amp; Utility</div>
-  </div>
-  <div style="flex:1;min-width:160px;background:#faf9f6;border:1.5px solid #e2e8f0;border-radius:0.65rem;padding:0.55rem 0.8rem;text-align:center;">
-    <div style="font-size:1.2rem;font-weight:800;color:#1e3a5f;">10%</div>
-    <div style="font-size:0.68rem;color:#374151;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">UX &amp; Transparency</div>
-  </div>
-</div>""", unsafe_allow_html=True)
-
-    # Sidebar: challenge compliance checklist
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Challenge Compliance")
-    st.sidebar.markdown("""
-- ✅ 10k facility extraction (Databricks)
-- ✅ Multi-attribute reasoning (LangGraph)
-- ✅ Trust Scorer (two-pass LLM + rules)
-- ✅ Agentic traceability + citations
-- ✅ Self-correction (Validator Agent)
-- ✅ Dynamic crisis mapping (Folium)
-- ✅ Confidence scoring (Wilson CI)
-- ✅ MLflow 3 Tracing observability
-- ✅ Web enrichment (Tavily)
-- ✅ Public health query logging
-""")
 
     _service_status()
     t_chat, t_plan, t_map, t_analytics = st.tabs(["Triage & Matching", "Mission Planner", "Desert Map", "Query Analytics"])
