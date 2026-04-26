@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import uuid
 from typing import Any
@@ -10,48 +9,13 @@ from typing import Any
 import requests
 
 _LAST_REQUEST_ID: str | None = None
-_DEBUG_LOG_PATH = "/home/ali-jafar/hack-nation/.cursor/debug-9b8bd5.log"
-
-
-def _dbg_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
-    # #region agent log
-    try:
-        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(
-                json.dumps(
-                    {
-                        "sessionId": "9b8bd5",
-                        "runId": run_id,
-                        "hypothesisId": hypothesis_id,
-                        "location": location,
-                        "message": message,
-                        "data": data,
-                        "timestamp": int(__import__("time").time() * 1000),
-                    },
-                    ensure_ascii=True,
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
 
 
 def _base_url() -> str:
-    raw = os.environ.get("CARECOMPASS_API_URL") or "http://127.0.0.1:8000"
-    resolved = raw.rstrip("/")
-    _dbg_log(
-        "pre-fix",
-        "H1",
-        "frontend/api_client.py:_base_url",
-        "Resolved CARECOMPASS_API_URL",
-        {"raw": raw, "resolved": resolved},
-    )
-    return resolved
+    return (os.environ.get("CARECOMPASS_API_URL") or "http://127.0.0.1:8000").rstrip("/")
 
 
 def get_api_base() -> str:
-    """Public base URL (for status display in UI)."""
     return _base_url()
 
 
@@ -72,18 +36,7 @@ class ApiError(Exception):
         raw: Any = None,
     ) -> None:
         super().__init__(message)
-        _dbg_log(
-            "pre-fix",
-            "H2",
-            "frontend/api_client.py:ApiError.__init__",
-            "ApiError instance created",
-            {
-                "status": status,
-                "has_message_attr_before": hasattr(self, "message"),
-                "detail_present": bool(detail),
-                "correlation_present": bool(correlation_id),
-            },
-        )
+        self.message = message
         self.status = status
         self.detail = detail
         self.correlation_id = correlation_id
@@ -92,10 +45,7 @@ class ApiError(Exception):
 
 def _req_headers(request_id: str | None) -> dict[str, str]:
     rid = request_id or _new_request_id()
-    return {
-        "Accept": "application/json",
-        "X-Request-Id": rid,
-    }
+    return {"Accept": "application/json", "X-Request-Id": rid}
 
 
 def _after_request_id(resp: requests.Response) -> None:
@@ -117,7 +67,6 @@ def request_json(
     request_id: str | None = None,
     timeout: float = 300.0,
 ) -> dict[str, Any]:
-    """GET/POST JSON. Raises ApiError on HTTP error or logical {error, status} body."""
     global _LAST_REQUEST_ID
     url = f"{_base_url()}{path if path.startswith('/') else '/' + path}"
     headers = _req_headers(request_id)
@@ -135,13 +84,6 @@ def request_json(
         else:
             raise ValueError(f"Unsupported method: {method}")
     except requests.RequestException as e:
-        _dbg_log(
-            "pre-fix",
-            "H1",
-            "frontend/api_client.py:request_json",
-            "Network exception during request",
-            {"method": method, "path": path, "error_type": type(e).__name__},
-        )
         raise ApiError(f"Network error: {e}", status=0, detail=str(e)) from e
 
     _after_request_id(resp)
@@ -157,9 +99,7 @@ def request_json(
             detail = str(data["detail"])
         raise ApiError(
             detail or f"Request failed ({resp.status_code})",
-            status=resp.status_code,
-            detail=detail,
-            raw=data,
+            status=resp.status_code, detail=detail, raw=data,
         )
 
     if isinstance(data, dict) and "error" in data and "status" in data and isinstance(
@@ -181,62 +121,41 @@ def get_json(path: str, request_id: str | None = None) -> dict[str, Any]:
     return request_json("GET", path, request_id=request_id)
 
 
-def post_json(
-    path: str,
-    body: dict[str, Any],
-    request_id: str | None = None,
-) -> dict[str, Any]:
+def post_json(path: str, body: dict[str, Any], request_id: str | None = None) -> dict[str, Any]:
     return request_json("POST", path, json_body=body, request_id=request_id)
 
 
-# --- Triage -------------------------------------------------------------------
+# ── Triage ───────────────────────────────────────────────────────────────────
 
 def triage_analyze(symptoms_text: str, request_id: str | None = None) -> dict[str, Any]:
-    return post_json(
-        "/triage/analyze",
-        {"symptoms_text": symptoms_text, "metadata": {}},
-        request_id=request_id,
-    )
+    return post_json("/triage/analyze", {"symptoms_text": symptoms_text, "metadata": {}}, request_id=request_id)
 
 
 def triage_match_facilities(
-    session_id: str,
-    top_k: int = 10,
-    state_hint: str | None = None,
-    request_id: str | None = None,
+    session_id: str, top_k: int = 10, state_hint: str | None = None, request_id: str | None = None,
 ) -> dict[str, Any]:
     return post_json(
         "/triage/match_facilities",
-        {
-            "session_id": session_id,
-            "top_k": int(top_k),
-            "state_hint": state_hint or None,
-        },
+        {"session_id": session_id, "top_k": int(top_k), "state_hint": state_hint or None},
         request_id=request_id,
     )
 
 
-# --- Policy -------------------------------------------------------------------
+# ── Policy ───────────────────────────────────────────────────────────────────
 
-def get_policy_deserts(
-    specialty: str,
-    level: str,
-    request_id: str | None = None,
-) -> dict[str, Any]:
+def get_policy_deserts(specialty: str, level: str, request_id: str | None = None) -> dict[str, Any]:
     from urllib.parse import urlencode
-
     q = urlencode({"specialty": (specialty or "emergency").strip(), "level": level})
     return get_json(f"/policy/deserts?{q}", request_id=request_id)
 
 
 def get_pin_risk(pin_code: str, request_id: str | None = None) -> dict[str, Any]:
     from urllib.parse import quote
-
     seg = quote(str(pin_code).strip(), safe="")
     return get_json(f"/policy/pin-risk/{seg}", request_id=request_id)
 
 
-# --- System -------------------------------------------------------------------
+# ── System ───────────────────────────────────────────────────────────────────
 
 def healthz(request_id: str | None = None) -> dict[str, Any]:
     return get_json("/healthz", request_id=request_id)
@@ -246,52 +165,29 @@ def readiness(request_id: str | None = None) -> dict[str, Any]:
     return get_json("/readiness", request_id=request_id)
 
 
-# --- Referral -----------------------------------------------------------------
+# ── Referral ─────────────────────────────────────────────────────────────────
 
 def referral_preview(
-    *,
-    session_id: str,
-    to_facility: str,
-    patient_summary: str = "",
-    message_body: str = "",
-    contact_hint: str = "",
-    to_phone: str = "",
+    *, session_id: str, to_facility: str, patient_summary: str = "",
+    message_body: str = "", contact_hint: str = "", to_phone: str = "",
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    return post_json(
-        "/referral/preview",
-        {
-            "session_id": session_id,
-            "to_facility": to_facility,
-            "patient_summary": patient_summary,
-            "message_body": message_body,
-            "contact_hint": contact_hint,
-            "to_phone": to_phone,
-        },
-        request_id=request_id,
-    )
+    return post_json("/referral/preview", {
+        "session_id": session_id, "to_facility": to_facility,
+        "patient_summary": patient_summary, "message_body": message_body,
+        "contact_hint": contact_hint, "to_phone": to_phone,
+    }, request_id=request_id)
 
 
-def referral_send(
-    preview_id: str, to_phone: str = "", request_id: str | None = None
-) -> dict[str, Any]:
-    return post_json(
-        "/referral/send",
-        {"preview_id": preview_id, "to_phone": to_phone},
-        request_id=request_id,
-    )
+def referral_send(preview_id: str, to_phone: str = "", request_id: str | None = None) -> dict[str, Any]:
+    return post_json("/referral/send", {"preview_id": preview_id, "to_phone": to_phone}, request_id=request_id)
 
 
-# --- Enrichment (optional) ---------------------------------------------------
+# ── Enrichment (optional) ───────────────────────────────────────────────────
 
 def enrichment_facility(
-    facility_name: str,
-    district: str = "",
-    state: str = "",
-    request_id: str | None = None,
+    facility_name: str, district: str = "", state: str = "", request_id: str | None = None,
 ) -> dict[str, Any]:
-    return post_json(
-        "/enrichment/facility",
-        {"facility_name": facility_name, "district": district, "state": state},
-        request_id=request_id,
-    )
+    return post_json("/enrichment/facility", {
+        "facility_name": facility_name, "district": district, "state": state,
+    }, request_id=request_id)
