@@ -279,33 +279,131 @@ def inject_css() -> None:
     background: #166534 !important;
   }
 
-  /* Main app tabs: boxed, distinct, hover (role=tab pattern) */
+  /* Main app tabs: per-surface color (Triage, Planner, Map, Analytics, Arch, Intel) */
   [data-testid="stTabs"] [role="tablist"] {
-    gap: 0.35rem !important;
+    gap: 0.45rem !important;
     flex-wrap: wrap !important;
-    padding: 0.25rem 0 0.5rem 0 !important;
-    background: linear-gradient(180deg, #f8fafc 0%, #fff 100%) !important;
-    border-radius: 0.5rem 0.5rem 0 0 !important;
+    padding: 0.5rem 0.25rem 0.55rem 0.25rem !important;
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 50%, #f8fafc 100%) !important;
+    border-radius: 0.65rem 0.65rem 0 0 !important;
+    border: 1px solid #e2e8f0;
+    border-bottom: none;
   }
   [data-testid="stTabs"] [role="tablist"] [role="tab"] {
-    border: 1.5px solid #cbd5e1 !important;
-    border-radius: 0.5rem !important;
-    padding: 0.5rem 1rem !important;
-    margin: 0 0.2rem 0.35rem 0 !important;
-    background: #f1f5f9 !important;
-    color: #334155 !important;
+    border-radius: 0.6rem !important;
+    padding: 0.48rem 0.9rem !important;
+    margin: 0 !important;
     font-weight: 600 !important;
-    transition: background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    font-size: 0.88rem !important;
+    border: 2px solid transparent !important;
+    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.2s ease, transform 0.15s ease;
   }
-  [data-testid="stTabs"] [role="tablist"] [role="tab"][aria-selected="true"] {
-    background: #ffffff !important;
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:hover:not([aria-selected="true"]) {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.12) !important;
+  }
+
+  /* 1 Triage & Matching — clinical rose */
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(1) {
+    background: linear-gradient(180deg, #fff1f2, #ffe4e6) !important;
+    color: #9f1239 !important;
+    border-color: #fda4af !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(1):hover:not([aria-selected="true"]) {
+    background: #fecdd3 !important;
+    border-color: #f43f5e !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(1)[aria-selected="true"] {
+    background: linear-gradient(135deg, #e11d48, #be123c) !important;
+    color: #fff !important;
+    border-color: #9f1239 !important;
+    box-shadow: 0 3px 14px rgba(225, 29, 72, 0.45) !important;
+  }
+
+  /* 2 Mission Planner — plan green */
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(2) {
+    background: linear-gradient(180deg, #ecfdf5, #d1fae5) !important;
+    color: #047857 !important;
+    border-color: #6ee7b7 !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(2):hover:not([aria-selected="true"]) {
+    background: #a7f3d0 !important;
+    border-color: #10b981 !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(2)[aria-selected="true"] {
+    background: linear-gradient(135deg, #059669, #047857) !important;
+    color: #fff !important;
+    border-color: #065f46 !important;
+    box-shadow: 0 3px 14px rgba(5, 150, 105, 0.4) !important;
+  }
+
+  /* 3 Desert Map — saffron / map gold */
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(3) {
+    background: linear-gradient(180deg, #fffbeb, #fef3c7) !important;
+    color: #b45309 !important;
+    border-color: #fcd34d !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(3):hover:not([aria-selected="true"]) {
+    background: #fde68a !important;
+    border-color: #f59e0b !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(3)[aria-selected="true"] {
+    background: linear-gradient(135deg, #ea580c, #c2410c) !important;
+    color: #fff !important;
+    border-color: #9a3412 !important;
+    box-shadow: 0 3px 14px rgba(234, 88, 12, 0.4) !important;
+  }
+
+  /* 4 Query Analytics — insight violet */
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(4) {
+    background: linear-gradient(180deg, #f5f3ff, #ede9fe) !important;
+    color: #5b21b6 !important;
+    border-color: #c4b5fd !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(4):hover:not([aria-selected="true"]) {
+    background: #ddd6fe !important;
+    border-color: #8b5cf6 !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(4)[aria-selected="true"] {
+    background: linear-gradient(135deg, #7c3aed, #6d28d9) !important;
+    color: #fff !important;
+    border-color: #4c1d95 !important;
+    box-shadow: 0 3px 14px rgba(124, 58, 237, 0.4) !important;
+  }
+
+  /* 5 System Architecture — blueprint cyan */
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(5) {
+    background: linear-gradient(180deg, #f0f9ff, #e0f2fe) !important;
+    color: #0369a1 !important;
+    border-color: #7dd3fc !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(5):hover:not([aria-selected="true"]) {
+    background: #bae6fd !important;
+    border-color: #0ea5e9 !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(5)[aria-selected="true"] {
+    background: linear-gradient(135deg, #0284c7, #0369a1) !important;
+    color: #fff !important;
+    border-color: #075985 !important;
+    box-shadow: 0 3px 14px rgba(2, 132, 199, 0.4) !important;
+  }
+
+  /* 6 Intelligence Engine — India navy + saffron accent bar */
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(6) {
+    background: linear-gradient(180deg, #eff6ff, #dbeafe) !important;
     color: #1e3a5f !important;
-    border-color: #FF9933 !important;
-    box-shadow: 0 2px 8px rgba(30, 58, 95, 0.1) !important;
+    border-color: #60a5fa !important;
+    box-shadow: inset 0 3px 0 #FF9933 !important;
   }
-  [data-testid="stTabs"] [role="tablist"] [role="tab"]:hover {
-    background: #fff7ed !important;
-    border-color: #fdba74 !important;
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(6):hover:not([aria-selected="true"]) {
+    background: #bfdbfe !important;
+    border-color: #2563eb !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(6)[aria-selected="true"] {
+    background: linear-gradient(135deg, #1e3a5f, #1e40af) !important;
+    color: #fef3c7 !important;
+    border-color: #FF9933 !important;
+    box-shadow: 0 3px 16px rgba(30, 58, 95, 0.5), inset 0 3px 0 #FF9933 !important;
   }
 
   #MainMenu { visibility: hidden; }
