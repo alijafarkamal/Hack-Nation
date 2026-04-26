@@ -254,6 +254,35 @@ def inject_css() -> None:
     background: #166534 !important;
   }
 
+  /* Main app tabs: boxed, distinct, hover (role=tab pattern) */
+  [data-testid="stTabs"] [role="tablist"] {
+    gap: 0.35rem !important;
+    flex-wrap: wrap !important;
+    padding: 0.25rem 0 0.5rem 0 !important;
+    background: linear-gradient(180deg, #f8fafc 0%, #fff 100%) !important;
+    border-radius: 0.5rem 0.5rem 0 0 !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"] {
+    border: 1.5px solid #cbd5e1 !important;
+    border-radius: 0.5rem !important;
+    padding: 0.5rem 1rem !important;
+    margin: 0 0.2rem 0.35rem 0 !important;
+    background: #f1f5f9 !important;
+    color: #334155 !important;
+    font-weight: 600 !important;
+    transition: background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"][aria-selected="true"] {
+    background: #ffffff !important;
+    color: #1e3a5f !important;
+    border-color: #FF9933 !important;
+    box-shadow: 0 2px 8px rgba(30, 58, 95, 0.1) !important;
+  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:hover {
+    background: #fff7ed !important;
+    border-color: #fdba74 !important;
+  }
+
   #MainMenu { visibility: hidden; }
   footer { visibility: hidden; }
 </style>
@@ -308,6 +337,298 @@ def _wilson_gauge(iv: dict[str, Any] | None, title: str = "Wilson Score Interval
         title=dict(text=f"<b>{title}</b>", font=dict(size=13, color="#475569"), x=0),
     )
     return fig
+
+
+def _plotly_figure_to_png(fig: go.Figure, *, width: int, height: int) -> bytes | None:
+    """Render Plotly figure to PNG for PDF embedding. Uses kaleido when installed."""
+    try:
+        out: Any = fig.to_image(format="png", width=width, height=height, engine="kaleido")
+        return bytes(out) if out else None
+    except Exception:
+        return None
+
+
+def _mpl_barh_coverage_png(
+    rows: list[tuple[str, bool]], *, title: str, width_px: int, height_px: int,
+) -> bytes | None:
+    """Static horizontal coverage chart when Plotly static export is unavailable."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return None
+    if not rows:
+        return None
+    states = [r[0] for r in rows]
+    colors = ["#dc2626" if r[1] else "#059669" for r in rows]
+    n = len(states)
+    fig_w = max(7.0, min(12.0, width_px / 100))
+    fig_h = max(3.5, min(13.0, height_px / 100))
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=110)
+    y = list(range(n))
+    ax.barh(y, [1.0] * n, color=colors, height=0.66, edgecolor="none")
+    ax.set_yticks(y, [s[:30] + ("…" if len(s) > 30 else "") for s in states], fontsize=6.5)
+    ax.set_xlim(0, 1.12)
+    ax.set_xticks([])
+    ax.set_title(title, fontsize=10, fontweight="bold", color="#1e3a5f", pad=8)
+    ax.invert_yaxis()
+    for s in ("top", "right", "bottom"):
+        ax.spines[s].set_visible(False)
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("#fafafa")
+    buf = io.BytesIO()
+    fig.tight_layout()
+    fig.savefig(buf, format="png", facecolor="white", bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _mpl_donut_png(*, desert: int, covered: int, title: str, w_px: int, h_px: int) -> bytes | None:
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return None
+    if desert + covered == 0:
+        return None
+    fig, ax = plt.subplots(figsize=(w_px / 120, h_px / 120), dpi=120)
+    ax.pie(
+        [desert, covered],
+        labels=["Desert states", "Covered states"],
+        colors=["#dc2626", "#059669"],
+        autopct="%1.1f%%",
+        startangle=90,
+        wedgeprops=dict(width=0.5, edgecolor="white"),
+    )
+    ax.set_title(title, fontsize=10, fontweight="bold", color="#1e3a5f", pad=10)
+    buf = io.BytesIO()
+    fig.tight_layout()
+    fig.savefig(buf, format="png", facecolor="white", bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _mpl_wilson_strip_png(
+    *, point: float, lo: float, hi: float, title: str, w_px: int, h_px: int,
+) -> bytes | None:
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return None
+    fig_w = max(6.0, w_px / 120)
+    fig_h = max(1.0, h_px / 300)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=120)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(-0.5, 0.5)
+    ax.barh(0, max(0.0, hi - lo), left=max(0.0, lo), height=0.32, color="#93c5fd", alpha=0.55)
+    ax.plot([point], [0], "D", color="#1e3a5f", markersize=8)
+    ax.text(point, 0.28, f"{round(point * 100, 1)}%", ha="center", fontsize=9, color="#1e3a5f", fontweight="bold")
+    ax.set_yticks([])
+    ax.set_xticks([0, 0.5, 1.0], ["0%", "50%", "100%"], fontsize=7)
+    ax.set_title(title, fontsize=9, color="#1e3a5f", pad=4)
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
+    fig.patch.set_facecolor("white")
+    buf = io.BytesIO()
+    fig.tight_layout()
+    fig.savefig(buf, format="png", facecolor="white", bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _mpl_stacked_pin_png(*, n: int, k: int, w_px: int, h_px: int) -> bytes | None:
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return None
+    try:
+        kk = int(k)
+        nn = int(n)
+    except (TypeError, ValueError):
+        return None
+    rest = max(0, nn - kk)
+    fig, ax = plt.subplots(figsize=(w_px / 150, h_px / 200), dpi=120)
+    ax.bar(["Desert / covered PINs (sample)"], [kk], color="#dc2626", label="Desert (no coverage)")
+    ax.bar(["Desert / covered PINs (sample)"], [rest], bottom=[kk], color="#059669", label="Covered")
+    ax.set_title("PIN-level desert vs covered (stacked sample)", fontsize=9, color="#1e3a5f")
+    ax.legend(frameon=True, fontsize=7, loc="upper right")
+    fig.patch.set_facecolor("white")
+    buf = io.BytesIO()
+    fig.tight_layout()
+    fig.savefig(buf, format="png", facecolor="white", bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _build_mission_planner_chart_images(
+    *,
+    specialty: str,
+    level: str,
+    report: dict[str, Any] | None,
+    d_states: list[str] | None,
+    covered_states: list[str] | None,
+    pin_code: str,
+    pin_risk: dict[str, Any] | None,
+) -> list[tuple[str, bytes]]:
+    """(Figure caption, PNG bytes) for each Mission Planner chart that can be exported."""
+    out: list[tuple[str, bytes]] = []
+    ds = list(d_states or [])
+    cs = list(covered_states or [])
+    spec_title = (specialty or "analysis").strip().title()
+    lev = str(level).lower()
+    wiv = (report or {}).get("desert_pin_ratio_interval") if report else None
+
+    if report and (ds or cs):
+        chart_data = []
+        for s in sorted(ds):
+            chart_data.append({"State": s, "Status": "No Coverage (Desert)", "Value": 1})
+        for s in sorted(cs):
+            chart_data.append({"State": s, "Status": "Has Coverage", "Value": 1})
+        if chart_data:
+            n_states = len(chart_data)
+            df_cov = pd.DataFrame(chart_data)
+            fig_cov = px.bar(
+                df_cov, x="Value", y="State", color="Status", orientation="h",
+                color_discrete_map={"No Coverage (Desert)": "#dc2626", "Has Coverage": "#059669"},
+                labels={"Value": "Presence (1 = listed in category)", "State": ""},
+                text="Status",
+                text_auto=True,
+            )
+            fig_cov.update_traces(textposition="inside")
+            fig_cov.update_layout(
+                showlegend=True,
+                height=max(300, min(1200, n_states * 20)),
+                margin=dict(l=0, r=10, t=50, b=20),
+                paper_bgcolor="white", plot_bgcolor="white",
+                title=dict(
+                    text=f"<b>Coverage by state</b> &mdash; {spec_title} ({lev.upper()})",
+                    font=dict(size=14, color="#1e3a5f"),
+                ),
+                xaxis=dict(visible=False), yaxis=dict(title_font_size=10, tickfont_size=9),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5),
+            )
+            h_px = int(max(360, min(1300, n_states * 22)))
+            png = _plotly_figure_to_png(fig_cov, width=1100, height=h_px)
+            if not png:
+                rows_m = [(s, True) for s in sorted(ds)] + [(s, False) for s in sorted(cs)]
+                png = _mpl_barh_coverage_png(
+                    rows_m,
+                    title=f"Coverage by state — {spec_title} ({lev.upper()})",
+                    width_px=1100, height_px=h_px,
+                )
+            if png:
+                out.append(("Figure 1: Coverage by state (desert vs covered)", png))
+
+    if ds or cs:
+        fig_pie = go.Figure(go.Pie(
+            labels=["Desert States", "Covered States"],
+            values=[len(ds), len(cs)],
+            hole=0.45,
+            marker=dict(colors=["#dc2626", "#059669"]),
+            textinfo="percent+label", textposition="inside",
+        ))
+        fig_pie.update_layout(
+            height=360, margin=dict(l=20, r=20, t=50, b=30),
+            paper_bgcolor="white", plot_bgcolor="white",
+            title=dict(text=f"<b>Desert vs covered</b> &mdash; {spec_title}", font=dict(size=14, color="#1e3a5f")),
+            showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.12, x=0.5),
+        )
+        png = _plotly_figure_to_png(fig_pie, width=900, height=440)
+        if not png:
+            png = _mpl_donut_png(
+                desert=len(ds), covered=len(cs),
+                title=f"Desert vs covered — {spec_title}",
+                w_px=900, h_px=440,
+            )
+        if png:
+            out.append(("Figure 2: State distribution (desert vs covered)", png))
+
+    if isinstance(wiv, dict):
+        fig_w = _wilson_gauge(wiv, title=f"Desert proportion ({spec_title}, {lev.upper()})")
+        if fig_w:
+            fig_w.update_layout(paper_bgcolor="white", plot_bgcolor="white", height=120, margin=dict(t=40, b=20))
+            png = _plotly_figure_to_png(fig_w, width=1000, height=200)
+            if not png:
+                try:
+                    pt, lo, hi = (
+                        float(wiv.get("point") or 0),
+                        float(wiv.get("low_95") or 0),
+                        float(wiv.get("high_95") or 1),
+                    )
+                    png = _mpl_wilson_strip_png(
+                        point=pt, lo=lo, hi=hi,
+                        title=f"Desert proportion ({spec_title}, {lev.upper()})",
+                        w_px=1000, h_px=200,
+                    )
+                except (TypeError, ValueError):
+                    png = None
+            if png:
+                out.append(("Figure 3: Wilson score interval (desert proportion)", png))
+
+    if (
+        lev == "pin" and isinstance(wiv, dict) and wiv.get("n")
+        and int(wiv.get("n") or 0) > 0 and wiv.get("k") is not None
+    ):
+        try:
+            n, k = int(wiv["n"]), int(wiv["k"])
+            fig_st = go.Figure()
+            fig_st.add_trace(go.Bar(
+                name="Desert (no coverage)", x=["PINs"], y=[k], marker_color="#dc2626",
+                text=[str(k)], textposition="inside",
+            ))
+            fig_st.add_trace(go.Bar(
+                name="Covered", x=["PINs"], y=[max(0, n - k)], marker_color="#059669",
+                text=[str(max(0, n - k))], textposition="inside",
+            ))
+            fig_st.update_layout(
+                barmode="stack", height=300, margin=dict(t=50, b=30),
+                paper_bgcolor="white", plot_bgcolor="white",
+                title=dict(
+                    text="<b>PIN-level desert vs covered (stacked)</b>",
+                    font=dict(size=14, color="#1e3a5f"),
+                ),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.2),
+            )
+            png = _plotly_figure_to_png(fig_st, width=900, height=380)
+            if not png:
+                png = _mpl_stacked_pin_png(n=n, k=k, w_px=900, h_px=380)
+            if png:
+                out.append(("Figure 4: PIN sample — desert vs covered", png))
+        except (TypeError, ValueError):
+            pass
+
+    pr = pin_risk if isinstance(pin_risk, dict) else None
+    if pin_code and pr and not pr.get("error"):
+        htw = pr.get("high_trust_wilson")
+        if isinstance(htw, dict):
+            fig_pin = _wilson_gauge(htw, title=f"High-trust share in PIN {pin_code}")
+            if fig_pin:
+                fig_pin.update_layout(paper_bgcolor="white", plot_bgcolor="white", height=120, margin=dict(t=40, b=20))
+                png = _plotly_figure_to_png(fig_pin, width=1000, height=200)
+                if not png:
+                    try:
+                        pt, lo, hi = (
+                            float(htw.get("point") or 0),
+                            float(htw.get("low_95") or 0),
+                            float(htw.get("high_95") or 1),
+                        )
+                        png = _mpl_wilson_strip_png(
+                            point=pt, lo=lo, hi=hi,
+                            title=f"High-trust share in PIN {pin_code}",
+                            w_px=1000, h_px=200,
+                        )
+                    except (TypeError, ValueError):
+                        png = None
+                if png:
+                    out.append((f"Figure 5: High-trust Wilson (PIN {pin_code})", png))
+
+    return out
 
 
 def _conf_pill(conf: float | None) -> str:
@@ -779,75 +1100,159 @@ def _generate_mission_pdf(
     from fpdf import FPDF
 
     def _safe(text: str) -> str:
-        return text.encode("latin-1", "replace").decode("latin-1")
+        return str(text).encode("latin-1", "replace").decode("latin-1")
+
+    chart_imgs = _build_mission_planner_chart_images(
+        specialty=specialty, level=level, report=report,
+        d_states=d_states, covered_states=covered_states,
+        pin_code=pin_code, pin_risk=pin_risk,
+    )
+    d_s = d_states or []
+    c_s = covered_states or []
+    d_pins_n = 0
+    if report:
+        d_pins_n = len([
+            p for p in (report.get("desert_pins") or [])
+            if p and str(p).strip() not in ("null", "None", "")
+        ])
+    wiv = (report or {}).get("desert_pin_ratio_interval") if report else None
+    pr = pin_risk if isinstance(pin_risk, dict) else None
 
     pdf = FPDF()
-    pdf.set_auto_page_break(True, margin=12)
+    pdf.set_auto_page_break(True, margin=16)
+    pdf.set_margins(14, 14, 14)
     pdf.add_page()
-    pdf.set_font("Helvetica", "B", 16)
+    pdf.set_fill_color(255, 153, 51)
+    pdf.rect(0, 0, 220, 4, "F")
+    pdf.set_fill_color(250, 250, 250)
+    pdf.rect(0, 4, 220, 3, "F")
+    pdf.set_fill_color(19, 136, 8)
+    pdf.rect(0, 7, 220, 4, "F")
+    pdf.set_y(18)
+    pdf.set_font("Helvetica", "B", 18)
     pdf.set_text_color(30, 58, 95)
-    pdf.cell(0, 8, "CareCompass India — Mission Planner Report", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(60, 60, 60)
-    pdf.cell(0, 5, f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
-    pdf.set_font("Helvetica", "I", 8)
-    pdf.multi_cell(0, 4, _safe(DISCLAIMER_POLICY), align="L")
+    pdf.cell(0, 9, _safe("CareCompass India"), new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(51, 65, 85)
+    pdf.cell(0, 7, _safe("Mission Planner - Analytical Report"), new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.ln(1)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 4, _safe(
+        f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  Policy & coverage intelligence"
+    ), new_x="LMARGIN", new_y="NEXT", align="C")
     pdf.ln(3)
+    pdf.set_x(pdf.l_margin)
 
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 7, "Dataset Summary", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(30, 58, 95)
+    pdf.cell(0, 6, _safe("Dataset context"), new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 9)
-    pdf.cell(0, 5, _safe(f"Total Facilities: {APPROX_FACILITIES:,} | Valid PINs: {APPROX_VALID_PIN:,} | Quarantined: {PARSING_ARTIFACTS}"))
-    pdf.ln(6)
+    pdf.set_text_color(50, 50, 50)
+    pdf.multi_cell(0, 4.5, _safe(
+        f"National registry scale: {APPROX_FACILITIES:,} facilities, {APPROX_VALID_PIN:,} valid PINs, "
+        f"{PARSING_ARTIFACTS} quarantined records (cleaning pipeline)."
+    ))
+    pdf.ln(1)
+    pdf.set_x(pdf.l_margin)
 
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 7, f"Desert Report: {specialty.title()} ({level.upper()} level)", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(30, 58, 95)
+    pdf.cell(0, 6, _safe("This run - executive summary"), new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(50, 50, 50)
+    es_lines = [
+        f"Specialty: {specialty.title()}   |   Granularity: {str(level).upper()}",
+    ]
     if report:
-        pdf.cell(0, 5, _safe(f"Desert States: {report.get('desert_state_count', len(d_states or []))}"))
-        pdf.ln(5)
-        pdf.cell(0, 5, _safe(f"Desert PINs: {report.get('desert_pin_count', '—')}"))
-        pdf.ln(5)
-        w = report.get("desert_pin_ratio_interval")
-        if isinstance(w, dict):
-            pdf.cell(0, 5, _safe(f"Wilson Interval: {_wilson_text(w)}"))
-            pdf.ln(5)
-    pdf.ln(3)
-
-    if d_states or covered_states:
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 7, "Coverage by State (Red=Desert, Green=Covered)", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 9)
-        all_s = sorted(set((d_states or []) + (covered_states or [])))
-        for s in all_s[:40]:
-            is_desert = s in (d_states or [])
-            if is_desert:
-                pdf.set_fill_color(220, 38, 38)
-            else:
-                pdf.set_fill_color(5, 150, 105)
-            bar_w = 6
-            pdf.rect(pdf.get_x(), pdf.get_y() + 1, bar_w, 3.5, "F")
-            pdf.set_x(pdf.get_x() + bar_w + 3)
-            pdf.cell(0, 5, _safe(f"{s} — {'NO COVERAGE' if is_desert else 'Covered'}"))
-            pdf.ln(5)
-        pdf.ln(3)
-
-    if pin_code and pin_risk and not pin_risk.get("error"):
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 7, f"PIN Risk: {pin_code}", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 9)
-        pdf.cell(0, 5, _safe(f"Facility Count: {pin_risk.get('facility_count', '—')}"))
-        pdf.ln(5)
-    pdf.ln(4)
+        es_lines.append(
+            f"Desert states: {len(d_s)}   |   Covered states: {len(c_s)}   |   "
+            f"Desert PINs (listed): {d_pins_n or report.get('desert_pin_count', '—')}"
+        )
+    if isinstance(wiv, dict):
+        es_lines.append(f"Desert share (Wilson): {_wilson_text(wiv)}")
+    if pin_code and pr and not pr.get("error"):
+        es_lines.append(
+            f"PIN focus: {pin_code}   |   Facilities in PIN: {pr.get('facility_count', '—')}"
+        )
+    for line in es_lines:
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 4.8, _safe(line))
+    pdf.ln(1)
+    pdf.set_x(pdf.l_margin)
+    if chart_imgs:
+        pdf.set_font("Helvetica", "I", 8)
+        pdf.set_text_color(71, 85, 105)
+        pdf.multi_cell(0, 3.8, _safe("Following pages embed the same visual analytics as the Mission Planner tab (print-friendly figures)."))
+    else:
+        pdf.set_font("Helvetica", "I", 8)
+        pdf.set_text_color(180, 83, 9)
+        pdf.multi_cell(0, 3.8, _safe(
+            "Chart export is unavailable in this build (install kaleido for PNG figures). This PDF still includes the executive summary; open the app for interactive charts."
+        ))
+    pdf.ln(1)
     pdf.set_font("Helvetica", "I", 7)
     pdf.set_text_color(100, 100, 100)
-    pdf.multi_cell(0, 3.5, _safe(
-        "DISCLAIMER: Generated by an AI analytical system for planning purposes only. "
-        "Statistics use Wilson score intervals for finite-sample coverage estimation."
-    ))
-    out = pdf.output(dest="S")
-    return bytes(out) if isinstance(out, (bytes, bytearray)) else str(out).encode("latin-1")
+    pdf.multi_cell(0, 3.2, _safe(DISCLAIMER_POLICY), align="L")
+    pdf.ln(0.5)
+    pdf.set_font("Helvetica", "I", 7)
+    pdf.multi_cell(0, 3.0, _safe(
+        "For planning and policy use only. Not medical advice. Wilson intervals model finite-sample uncertainty."
+    ), align="L")
+
+    cits = (report or {}).get("citations") if report else None
+    if cits and isinstance(cits, list) and cits:
+        pdf.ln(1)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(30, 58, 95)
+        pdf.cell(0, 5, _safe("Reference excerpts (policy field evidence)"), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 7)
+        pdf.set_text_color(60, 60, 60)
+        for i, c in enumerate(cits[:5]):
+            if not isinstance(c, dict):
+                continue
+            fac = str(c.get("facility", "") or "")[:50]
+            sn = str(c.get("evidence_snippet", "") or "")[:220].replace("\n", " ")
+            src = str(c.get("source", "policy") or "policy")
+            pdf.multi_cell(0, 3.0, _safe(f"{i + 1}. [{src}] {fac} - {sn}"))
+
+    for title, png in chart_imgs:
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(30, 58, 95)
+        pdf.cell(0, 6, _safe(title), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+        try:
+            pdf.image(io.BytesIO(png), x=12, w=186)
+        except Exception:
+            pdf.set_font("Helvetica", "I", 9)
+            pdf.set_text_color(200, 80, 80)
+            pdf.cell(0, 5, _safe("This figure could not be embedded. Open the app for the interactive chart."), new_x="LMARGIN", new_y="NEXT")
+
+    if pr and not pr.get("error") and pin_code:
+        sf = pr.get("sample_facilities") or []
+        if sf and isinstance(sf, list):
+            pdf.add_page()
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_text_color(30, 58, 95)
+            pdf.cell(0, 6, _safe(f"Sample facilities in PIN {pin_code}"), new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(0.5)
+            pdf.set_font("Helvetica", "", 8)
+            pdf.set_text_color(40, 40, 40)
+            for row in sf[:12]:
+                if not isinstance(row, dict):
+                    continue
+                nm = str(row.get("name", "") or "—")[:90]
+                ts = row.get("trust_score", row.get("trust_score_0_1", "—"))
+                pdf.multi_cell(0, 3.6, _safe(f"- {nm}   (trust: {ts})"))
+            if pr.get("safety_framing"):
+                pdf.ln(1)
+                pdf.set_font("Helvetica", "I", 7)
+                pdf.set_text_color(100, 100, 100)
+                pdf.multi_cell(0, 3.0, _safe(str(pr.get("safety_framing", ""))[:500]))
+
+    result = pdf.output(dest="S")
+    return bytes(result) if isinstance(result, (bytes, bytearray)) else str(result).encode("latin-1")
 
 
 # ── Service status ───────────────────────────────────────────────────────────
@@ -1250,12 +1655,15 @@ def _tab_planner() -> None:
             key="mission_pdf_unavail",
             type="secondary",
         )
-        st.caption("The planning PDF could not be generated. See details below.")
-        if pdf_err is not None:
-            if _env_truthy("CARECOMPASS_DEBUG") and pdf_exc is not None:
+        st.caption(
+            "The planning report could not be built. "
+            "Try refreshing after **Run Desert Analysis**; the server needs the **kaleido** package for chart images in the PDF."
+        )
+        if pdf_err is not None and _env_truthy("CARECOMPASS_DEBUG"):
+            if pdf_exc is not None:
                 st.exception(pdf_exc)
             else:
-                with st.expander("PDF generation error (for debugging)"):
+                with st.expander("PDF error detail (CARECOMPASS_DEBUG only)"):
                     st.code(pdf_err)
 
 
