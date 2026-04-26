@@ -15,6 +15,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
@@ -240,6 +241,16 @@ def inject_css() -> None:
 
   /* Disclaimer */
   .disclaimer { font-size:0.8rem; color:#6b7280; border-left:3px solid #FF9933; padding-left:0.6rem; margin:0.4rem 0; background: #fffbf2; padding: 0.3rem 0.6rem; border-radius: 0 0.4rem 0.4rem 0; }
+  .disclaimer-critical {
+    font-size: 0.88rem; font-weight: 700;
+    color: #7f1d1d;
+    background: #fef2f2;
+    border: 1.5px solid #fca5a5;
+    border-left: 5px solid #dc2626;
+    border-radius: 0 0.5rem 0.5rem 0;
+    padding: 0.55rem 1rem;
+    margin: 0.5rem 0 0.75rem 0;
+  }
 
   /* MLflow trace badge */
   .mlflow-badge { display:inline-block; background:#1e3a5f; color:#fff; padding:0.2rem 0.7rem; border-radius:0.5rem; font-size:0.7rem; font-weight:700; border:1px solid #FF9933; margin-left:0.4rem; }
@@ -297,6 +308,23 @@ def _safe_str(e: Exception) -> str:
 
 def _env_truthy(name: str) -> bool:
     return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes")
+
+
+def _mailto_patient_arrival(
+    to_email: str, facility: str, patient_summary: str, red_flags: list[str] | str,
+) -> str:
+    """Build mailto: URL to notify a facility by email (client-side; no server send)."""
+    subj = "Patient referral - arrival / coordination (CareCompass India)"
+    rf_text = red_flags if isinstance(red_flags, str) else "\n".join(f"- {x}" for x in (red_flags or []))
+    body = (
+        f"Regarding facility: {facility}\n\n"
+        f"--- Patient summary (from triage) ---\n{patient_summary or '(not provided)'}\n\n"
+        f"--- Clinical red flags (from triage) ---\n{rf_text or '(none listed)'}\n\n"
+        "---\n"
+        "This is capability-matching triage assistance, not a medical diagnosis. "
+        "This email was composed from the CareCompass India UI."
+    )
+    return f"mailto:{to_email}?subject={quote(subj)}&body={quote(body)}"
 
 
 def _wilson_text(iv: dict[str, Any] | None) -> str:
@@ -879,8 +907,9 @@ def _render_trust_report(trust_artifacts: dict[str, Any] | None) -> None:
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-def _render_full_trust_report(trust_artifacts: dict[str, Any] | None) -> None:
-    """Full per-facility Trust Scorer — prominent feature shown immediately after matching."""
+def _render_full_trust_report(mr: dict[str, Any]) -> None:
+    """Trust Scorer, contact details, and referral — one card per facility (no duplicate list)."""
+    trust_artifacts = mr.get("trust_artifacts")
     if not trust_artifacts or not isinstance(trust_artifacts, dict):
         return
     per_fac = trust_artifacts.get("per_facility") or []
@@ -891,6 +920,16 @@ def _render_full_trust_report(trust_artifacts: dict[str, Any] | None) -> None:
     suspicious = summary.get("suspicious", 0)
     review = summary.get("review", 0)
     verified = n - suspicious - review
+    cache = _get_enrichment_cache()
+    meta = _build_facility_meta_index(mr)
+    for name in [f.get("facility", "") for f in per_fac[:3] if f.get("facility")]:
+        if name and name not in cache:
+            _enrich_facility_cached(name)
+    triage_flags = st.session_state.get("triage_session") or {}
+    triage_red = [
+        f for f in (triage_flags.get("red_flags") or [])
+        if f and str(f).strip() not in ("[]", "null", "")
+    ]
 
     st.markdown("""
 <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);color:#fff;
@@ -900,7 +939,7 @@ padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
   </h4>
   <p style="margin:0.2rem 0 0 0;font-size:0.78rem;color:#bfdbfe;">
     Two-pass LLM pipeline (Extractor → Validator) + deterministic medical consistency rules.
-    Flags contradictions: e.g. Surgery claimed without Anaesthesiologist, ICU beds with no Oxygen.
+    Web contacts (Tavily) appear under each facility name with trust and referral in one place.
   </p>
 </div>""", unsafe_allow_html=True)
 
@@ -911,8 +950,9 @@ padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
     vc3.markdown(f'<div class="metric-box"><p class="num" style="color:#dc2626">{suspicious}</p><p class="label">Suspicious</p></div>', unsafe_allow_html=True)
     vc4.markdown(f'<div class="metric-box"><p class="num">{n}</p><p class="label">Total Analyzed</p></div>', unsafe_allow_html=True)
 
-    st.markdown("**Per-Facility Verification:**")
-    for fac in per_fac[:12]:
+    st.markdown("**Per-facility verification, contacts, and referral**")
+    facilities_shown: list[dict[str, Any]] = []
+    for idx, fac in enumerate(per_fac[:12]):
         fname = fac.get("facility", "Unknown")
         combined = float(fac.get("combined_trust_0_1", 0) or 0)
         verdict = fac.get("final_verdict", "REVIEW")
@@ -921,10 +961,48 @@ padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
         vcolor, vbg, vtext = _VERDICT_STYLES.get(verdict, ("#64748b", "#f1f5f9", "#334155"))
         pct = round(combined * 100)
         badge_label = "Verified by Medical Standard Agent" if verdict == "VERIFIED" else verdict
+        m = meta.get(fname) or {}
+        state = _fill(m.get("state"), "State not available")
+        pin = _fill(m.get("pin"), "PIN not available")
+        ftype = _fill(m.get("type"), "Type not specified")
+        notes = _fill(m.get("notes"), "")
+        enr = cache.get(fname) or {}
+        phone = _fill(enr.get("phone_estimated"), "")
+        website = _fill(enr.get("website_estimated"), "")
+        email = _fill(enr.get("email_estimated"), "")
+        all_phones = [p for p in (enr.get("all_phones") or []) if p and str(p).strip()]
+        all_websites = [w for w in (enr.get("all_websites") or []) if w and str(w).strip()]
 
+        st.markdown('<div class="fac-card" style="margin-top:0.4rem;">', unsafe_allow_html=True)
         c1, c2, c3 = st.columns([4, 2, 2])
         with c1:
-            st.markdown(f'<span style="font-weight:700;color:#1e293b;">{fname}</span>', unsafe_allow_html=True)
+            st.markdown(f'<span class="fac-title">{fname}</span>', unsafe_allow_html=True)
+            contact_lines: list[str] = []
+            if phone:
+                contact_lines.append(f"📞 **{phone}**")
+            if len(all_phones) > 1:
+                contact_lines.append(f"Alt: {', '.join(all_phones[1:3])}")
+            if email:
+                contact_lines.append(f"✉ {email}")
+            if website:
+                short = website.replace("https://", "").replace("http://", "")[:45]
+                contact_lines.append(f"🌐 [{short}]({website})")
+            if len(all_websites) > 1:
+                w2 = all_websites[1]
+                s2 = w2.replace("https://", "").replace("http://", "")[:40]
+                contact_lines.append(f"🌐 [{s2}]({w2})")
+            for line in contact_lines:
+                st.markdown(f'<span class="fac-contact">{line}</span>', unsafe_allow_html=True)
+            if not contact_lines and not enr:
+                if st.button("Search web for contacts", key=f"enrich_trust_{idx}_{fname[:12]}", type="secondary"):
+                    _enrich_facility_cached(fname)
+                    st.rerun()
+            elif not contact_lines and enr:
+                st.caption("No contact info found via web search")
+            st.markdown(
+                f'<span class="fac-meta">State: {state} · PIN: {pin} · Type: {_humanize(str(ftype))}</span>',
+                unsafe_allow_html=True,
+            )
         with c2:
             st.markdown(
                 f'<div class="trust-bar"><div class="trust-fill" style="width:{pct}%;background:{vcolor};"></div></div>'
@@ -936,17 +1014,39 @@ padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
                 f'<span class="verdict-badge" style="background:{vbg};color:{vtext};border:1px solid {vcolor};">{badge_label}</span>',
                 unsafe_allow_html=True,
             )
-        for fl in flags[:2]:
-            st.markdown(f'<span style="font-size:0.77rem;color:#dc2626;">⚠ {_humanize(fl)}</span>', unsafe_allow_html=True)
+            st.markdown("<br/>", unsafe_allow_html=True)
+            rkey = abs(hash((fname, idx))) % 1_000_000_000
+            if st.button("Refer this facility", key=f"ref_trust_{idx}_{rkey}", type="secondary"):
+                st.session_state.ref_facility_name = fname
+                st.session_state.ref_phone = phone or ""
+                st.session_state.ref_patient_summary = st.session_state.get("triage_sym_area", "")
+                st.session_state.ref_red_flags = list(triage_red)
+                st.session_state.ref_email = email or ""
+                st.toast(f"Referral pre-filled for {fname} (summary + triage red flags).")
         for dg in disagreements[:1]:
             st.markdown(f'<span style="font-size:0.77rem;color:#d97706;">⚡ {_humanize(dg)}</span>', unsafe_allow_html=True)
+        if flags:
+            st.markdown(" ".join(f'<span class="badge-flag">{_humanize(f)}</span>' for f in flags[:3]), unsafe_allow_html=True)
+        if notes:
+            st.markdown(f'<span class="fac-evidence">{_clean_markdown(notes[:200])}</span>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
         st.markdown('<hr style="margin:0.3rem 0;border:none;border-top:1px solid #f1f5f9;">', unsafe_allow_html=True)
+        facilities_shown.append({
+            "Facility": fname, "State": state, "PIN": str(pin), "Type": _humanize(str(ftype)),
+            "Trust %": pct, "Verdict": verdict, "Phone": phone, "Email": email, "Website": website,
+        })
 
     top_reasons = summary.get("top_contradiction_reasons") or []
     if top_reasons:
         st.markdown("**Top Contradiction Patterns across facilities:**")
         for r in top_reasons[:5]:
             st.markdown(f'- {_humanize(r.get("reason", ""))} *(found in {r.get("count", 0)} facilities)*')
+
+    if facilities_shown:
+        with st.expander(f"Download facility list (CSV) — {len(facilities_shown)} facilities"):
+            df_fac = pd.DataFrame(facilities_shown)
+            st.dataframe(df_fac, use_container_width=True, hide_index=True)
+            st.download_button("Download CSV", df_fac.to_csv(index=False).encode("utf-8"), "matched_facilities.csv", "text/csv", key="dl_fac_csv")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -974,111 +1074,6 @@ def _render_thought_process(mr: dict[str, Any]) -> None:
     if n_trust:
         st.markdown(f"**Trust verification:** Analyzed {n_trust} facilities through dual-LLM pipeline + deterministic rules")
     st.markdown('</div>', unsafe_allow_html=True)
-
-
-def _render_facility_cards(mr: dict[str, Any]) -> None:
-    """Render structured facility cards with trust scores and contact info from enrichment cache."""
-    trust_arts = mr.get("trust_artifacts") or {}
-    per_fac = trust_arts.get("per_facility") or []
-    cache = _get_enrichment_cache()
-    meta = _build_facility_meta_index(mr)
-
-    # Auto-enrich top 3 silently if not yet enriched
-    fac_names = [f.get("facility", "") for f in per_fac[:3] if f.get("facility")]
-    for name in fac_names:
-        if name and name not in cache:
-            _enrich_facility_cached(name)
-
-    facilities_shown: list[dict[str, Any]] = []
-    for fac in per_fac[:12]:
-        fname = fac.get("facility", "Unknown")
-        combined = float(fac.get("combined_trust_0_1", 0) or 0)
-        verdict = fac.get("final_verdict", "REVIEW")
-        flags = fac.get("all_flags") or []
-        vcolor, vbg, vtext = _VERDICT_STYLES.get(verdict, ("#64748b", "#f1f5f9", "#334155"))
-        pct_trust = round(combined * 100)
-
-        m = meta.get(fname) or {}
-        state = _fill(m.get("state"), "State not available")
-        pin = _fill(m.get("pin"), "PIN not available")
-        ftype = _fill(m.get("type"), "Type not specified")
-        notes = _fill(m.get("notes"), "")
-
-        enr = cache.get(fname) or {}
-        phone = _fill(enr.get("phone_estimated"), "")
-        website = _fill(enr.get("website_estimated"), "")
-        email = _fill(enr.get("email_estimated"), "")
-        all_phones = [p for p in (enr.get("all_phones") or []) if p and str(p).strip()]
-        all_websites = [w for w in (enr.get("all_websites") or []) if w and str(w).strip()]
-
-        st.markdown('<div class="fac-card">', unsafe_allow_html=True)
-        c1, c2, c3 = st.columns([4, 2, 2])
-        with c1:
-            st.markdown(f'<span class="fac-title">{fname}</span>', unsafe_allow_html=True)
-            st.markdown(f'<span class="fac-meta">State: {state} · PIN: {pin} · Type: {_humanize(str(ftype))}</span>', unsafe_allow_html=True)
-        with c2:
-            st.markdown(
-                f'<div class="trust-bar"><div class="trust-fill" style="width:{pct_trust}%;background:{vcolor};"></div></div>'
-                f'<span style="font-size:0.75rem;color:{vcolor};font-weight:700;">{pct_trust}% trust</span>',
-                unsafe_allow_html=True,
-            )
-        with c3:
-            st.markdown(
-                f'<span class="verdict-badge" style="background:{vbg};color:{vtext};border:1px solid {vcolor};">'
-                f'{"Verified by Medical Standard Agent" if verdict == "VERIFIED" else verdict}</span>',
-                unsafe_allow_html=True,
-            )
-
-        contact_lines = []
-        if phone:
-            contact_lines.append(f"📞 **{phone}**")
-        if len(all_phones) > 1:
-            contact_lines.append(f"Alt: {', '.join(all_phones[1:3])}")
-        if email:
-            contact_lines.append(f"✉ {email}")
-        if website:
-            short = website.replace("https://", "").replace("http://", "")[:45]
-            contact_lines.append(f"🌐 [{short}]({website})")
-        if len(all_websites) > 1:
-            w2 = all_websites[1]
-            s2 = w2.replace("https://", "").replace("http://", "")[:40]
-            contact_lines.append(f"🌐 [{s2}]({w2})")
-
-        if contact_lines:
-            for line in contact_lines:
-                st.markdown(f'<span class="fac-contact">{line}</span>', unsafe_allow_html=True)
-        elif not enr:
-            enrich_col, _ = st.columns([1, 3])
-            with enrich_col:
-                if st.button("Search web for contacts", key=f"enrich_single_{fname[:15]}", type="secondary"):
-                    _enrich_facility_cached(fname)
-                    st.rerun()
-        else:
-            st.caption("No contact info found via web search")
-
-        if flags:
-            st.markdown(" ".join(f'<span class="badge-flag">{_humanize(f)}</span>' for f in flags[:3]), unsafe_allow_html=True)
-        if notes:
-            st.markdown(f'<span class="fac-evidence">{_clean_markdown(notes[:200])}</span>', unsafe_allow_html=True)
-
-        if st.button("Refer this facility", key=f"ref_{fname[:20]}_{pct_trust}", type="secondary"):
-            st.session_state.ref_facility_name = fname
-            st.session_state.ref_phone = phone or ""
-            st.session_state.ref_patient_summary = st.session_state.get("triage_sym_area", "")
-            st.toast(f"Referral pre-filled for {fname}")
-
-        st.markdown('</div>', unsafe_allow_html=True)
-        facilities_shown.append({
-            "Facility": fname, "State": state, "PIN": str(pin), "Type": _humanize(str(ftype)),
-            "Trust %": pct_trust, "Verdict": verdict,
-            "Phone": phone, "Email": email, "Website": website,
-        })
-
-    if facilities_shown:
-        with st.expander(f"Download facility list (CSV) — {len(facilities_shown)} facilities"):
-            df_fac = pd.DataFrame(facilities_shown)
-            st.dataframe(df_fac, use_container_width=True, hide_index=True)
-            st.download_button("Download CSV", df_fac.to_csv(index=False).encode("utf-8"), "matched_facilities.csv", "text/csv", key="dl_fac_csv")
 
 
 def _trace_id_html(session_id: str = "", correlation_id: str = "") -> str:
@@ -1276,8 +1271,11 @@ def _service_status() -> None:
 # ── Tab 1: Triage & Matching ────────────────────────────────────────────────
 
 def _tab_triage() -> None:
-    st.markdown(f'<p class="disclaimer">{DISCLAIMER_TRIAGE}</p>', unsafe_allow_html=True)
-    for key, default in [("triage_session", None), ("match_result", None), ("triage_sym_area", ""), ("triage_region", "")]:
+    st.markdown(f'<p class="disclaimer-critical">{DISCLAIMER_TRIAGE}</p>', unsafe_allow_html=True)
+    for key, default in [
+        ("triage_session", None), ("match_result", None), ("triage_sym_area", ""), ("triage_region", ""),
+        ("ref_red_flags", []), ("ref_email", ""),
+    ]:
         if key not in st.session_state:
             st.session_state[key] = default
 
@@ -1377,13 +1375,10 @@ def _tab_triage() -> None:
         # 1. Agent pipeline / thought process
         _render_thought_process(mr)
 
-        # 2. Trust Scorer — prominent, with full per-facility detail ─────────
-        _render_full_trust_report(mr.get("trust_artifacts"))
+        # 2. Trust Scorer + contacts + refer (single list, no duplicate facility block)
+        _render_full_trust_report(mr)
 
-        # 3. Facility Cards with contact info
-        _render_facility_cards(mr)
-
-        # 4. Supporting evidence + citations pushed to bottom expanders ────
+        # 3. Supporting evidence + citations pushed to bottom expanders ────
         out_md = mr.get("graph_summary") or mr.get("final_answer")
         if out_md:
             with st.expander("Supporting Evidence (full agent output)"):
@@ -1398,13 +1393,20 @@ def _tab_triage() -> None:
 
     st.divider()
     st.markdown('<div class="section-card"><h4>Referral (Preview and Send SMS)</h4>', unsafe_allow_html=True)
+    st.caption(
+        "Click **Refer this facility** on a result above to pre-fill facility, phone, patient summary, "
+        "and triage red flags. Preview sends a structured message to the API; use Email or SMS to notify the site."
+    )
     ref_fac_default = st.session_state.get("ref_facility_name", "")
     ref_phone_default = st.session_state.get("ref_phone", "")
     ref_summary_default = st.session_state.get("ref_patient_summary", "")
+    rf_list = st.session_state.get("ref_red_flags") or []
+    ref_rf_text = "\n".join(_humanize(str(x)) for x in rf_list) if rf_list else "— (from triage after you click “Refer this facility”)"
     with st.form("ref_form"):
         to_fac = st.text_input("Facility Name", value=ref_fac_default)
         to_phone = st.text_input("Phone Number (E.164, e.g. +91…)", value=ref_phone_default)
-        psum = st.text_area("Patient Summary", value=ref_summary_default, height=60)
+        psum = st.text_area("Patient Summary (symptoms and context from triage)", value=ref_summary_default, height=60)
+        st.text_area("Red flags (from triage session — read-only)", value=ref_rf_text, height=64, disabled=True, key="ref_flags_ro")
         sub_prev = st.form_submit_button("Preview Referral")
     if sub_prev:
         if not (ts and ts.get("session_id")):
@@ -1428,6 +1430,14 @@ def _tab_triage() -> None:
                 st.success(f"Sent via {send.get('mode', '—')} · Audit ID: {send.get('audit_id', '—')}")
             except Exception as e:
                 st.error(_safe_str(e))
+    # Email: open default mail client (no backend send) when enrichment provided an address
+    re_mail = (st.session_state.get("ref_email") or "").strip()
+    if re_mail:
+        _fac_n = (st.session_state.get("ref_facility_name", "") or "").strip()
+        _psum_n = (st.session_state.get("ref_patient_summary", "") or "").strip()
+        _flags_n: list[str] = list(st.session_state.get("ref_red_flags") or [])
+        _href = _mailto_patient_arrival(re_mail, _fac_n, _psum_n, _flags_n)
+        st.link_button("Email facility (patient arrival / coordination) — opens your mail app", _href, type="secondary")
     st.markdown('</div>', unsafe_allow_html=True)
 
 

@@ -90,6 +90,12 @@ For facilities with missing data (phone, hours, website), the enrichment agent:
 - **Wilson Score Interval:** Used for desert-PIN proportion estimates. Provides finite-sample binomial confidence intervals (not naive proportions).
 - **Trust Score Distribution:** Weighted combination of deterministic, LLM-extractor, and LLM-validator scores with disagreement damping.
 
+## Triage tab — disclaimer, trust list, and referral
+
+- The **triage medical disclaimer** is shown in a high-visibility **red** banner (not a diagnosis; seek emergency care when appropriate).
+- **Per-facility block** (Trust Scorer): facility name, **phone / email / website directly under the name** (Tavily enrichment), trust bar, verdict, **Refer this facility** — one combined card per facility (no second duplicate list).
+- **Referral:** "Refer" copies **patient summary** (symptoms text), **triage red flags**, facility name, phone, and best-known **email** for the optional **“Email facility (patient arrival…)”** `mailto:` button. **Preview Referral** / **Send SMS** use the FastAPI referral endpoints; email is client-side only.
+
 ## Deployment
 
 - **Frontend:** Streamlit Community Cloud (free)
