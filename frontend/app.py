@@ -1684,6 +1684,22 @@ def _tab_triage() -> None:
             """.strip()
         )
 
+    with st.sidebar.expander("What we built beyond the brief", expanded=False):
+        st.markdown(
+            """
+- **Three-layer Trust Pipeline** — deterministic rules + Extractor LLM + Validator LLM with disagreement scoring
+- **Parallel fan-out** — two agents run simultaneously on composite queries
+- **Wilson Score CI** — prediction bands on desert proportions, not just gap existence
+- **End-to-end correlation ID** — UUID traces HTTP → every agent node → Databricks MLflow UI
+- **Twilio SMS referral** — full verified patient handoff chain
+- **Tavily web enrichment** — fills missing facility contacts from public web
+- **Three-mode crisis map** — Coverage Gap · Specialty Hotspot · Trust Pins
+- **Graceful degradation** — graph continues on partial Databricks failures
+- **PDF mission reports** — shareable NGO planning artifact with embedded charts
+- **Query analytics** — session usage as secondary public-health signal
+            """.strip()
+        )
+
     st.sidebar.markdown("### Try a Query")
     for i, q in enumerate(EXAMPLE_QUERIES):
         if st.sidebar.button(q, key=f"ex_{i}"):
