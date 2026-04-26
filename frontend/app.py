@@ -1815,6 +1815,7 @@ def _tab_triage() -> None:
         on_change=_on_triage_example_pill,
         help="Fills the symptom box with a realistic triage + matching scenario.",
         width="stretch",
+        label_visibility="collapsed",
     )
     sym_col, reg_col = st.columns([3, 1])
     with sym_col:
