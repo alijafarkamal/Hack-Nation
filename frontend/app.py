@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import re
 import sys
 from datetime import datetime
@@ -243,6 +244,16 @@ def inject_css() -> None:
   /* MLflow trace badge */
   .mlflow-badge { display:inline-block; background:#1e3a5f; color:#fff; padding:0.2rem 0.7rem; border-radius:0.5rem; font-size:0.7rem; font-weight:700; border:1px solid #FF9933; margin-left:0.4rem; }
 
+  .stDownloadButton > button, div[data-testid="stDownloadButton"] button {
+    background: #138808 !important;
+    color: #fff !important;
+    border: 1px solid #0f6e06 !important;
+    font-weight: 600 !important;
+  }
+  .stDownloadButton > button:hover {
+    background: #166534 !important;
+  }
+
   #MainMenu { visibility: hidden; }
   footer { visibility: hidden; }
 </style>
@@ -253,6 +264,10 @@ def inject_css() -> None:
 
 def _safe_str(e: Exception) -> str:
     return str(e)
+
+
+def _env_truthy(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes")
 
 
 def _wilson_text(iv: dict[str, Any] | None) -> str:
@@ -714,7 +729,7 @@ def _render_facility_cards(mr: dict[str, Any]) -> None:
         elif not enr:
             enrich_col, _ = st.columns([1, 3])
             with enrich_col:
-                if st.button(f"Search web for contacts", key=f"enrich_single_{fname[:15]}"):
+                if st.button("Search web for contacts", key=f"enrich_single_{fname[:15]}", type="secondary"):
                     _enrich_facility_cached(fname)
                     st.rerun()
         else:
@@ -725,7 +740,7 @@ def _render_facility_cards(mr: dict[str, Any]) -> None:
         if notes:
             st.markdown(f'<span class="fac-evidence">{_clean_markdown(notes[:200])}</span>', unsafe_allow_html=True)
 
-        if st.button(f"Refer this facility", key=f"ref_{fname[:20]}_{pct_trust}"):
+        if st.button("Refer this facility", key=f"ref_{fname[:20]}_{pct_trust}", type="secondary"):
             st.session_state.ref_facility_name = fname
             st.session_state.ref_phone = phone or ""
             st.session_state.ref_patient_summary = st.session_state.get("triage_sym_area", "")
@@ -839,7 +854,7 @@ def _generate_mission_pdf(
 
 def _service_status() -> None:
     with st.expander("System Health", expanded=False):
-        if st.button("Check API Status", key="h_check"):
+        if st.button("Check API Status", key="h_check", type="secondary"):
             try:
                 h = api_client.healthz()
                 st.success(f"**Health check** — Status: OK · Service: {h.get('service', '—')}")
@@ -1002,7 +1017,7 @@ def _tab_triage() -> None:
     if rpv:
         st.json(rpv)
         pid = rpv.get("preview_id")
-        if pid and st.button("Send SMS"):
+        if pid and st.button("Send SMS", type="secondary"):
             try:
                 send = api_client.referral_send(preview_id=str(pid), to_phone=str(st.session_state.get("ref_to_phone") or ""))
                 st.success(f"Sent via {send.get('mode', '—')} · Audit ID: {send.get('audit_id', '—')}")
@@ -1067,8 +1082,11 @@ def _tab_planner() -> None:
             fig_cov = px.bar(
                 df_cov, x="Value", y="State", color="Status", orientation="h",
                 color_discrete_map={"No Coverage (Desert)": "#dc2626", "Has Coverage": "#059669"},
-                labels={"Value": "", "State": ""},
+                labels={"Value": "Presence (1 = listed)", "State": ""},
+                text="Status",
+                text_auto=True,
             )
+            fig_cov.update_traces(textposition="inside")
             fig_cov.update_layout(
                 showlegend=True, height=max(300, len(chart_data) * 16),
                 margin=dict(l=0, r=10, t=5, b=5),
@@ -1124,20 +1142,22 @@ def _tab_planner() -> None:
             st.markdown(f"<p style='color:#475569;font-size:0.85rem;'>{_wilson_text(wiv)}</p>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-        if isinstance(wiv, dict) and wiv.get("n") is not None and wiv.get("k") is not None:
+        if str(level) == "pin" and isinstance(wiv, dict) and wiv.get("n") and int(wiv["n"] or 0) > 0 and wiv.get("k") is not None:
             try:
                 n, k = int(wiv["n"]), int(wiv["k"])
                 fig2 = go.Figure()
-                fig2.add_trace(go.Bar(name="Desert (no coverage)", x=["PINs"], y=[k], marker_color="#dc2626"))
-                fig2.add_trace(go.Bar(name="Covered", x=["PINs"], y=[max(0, n - k)], marker_color="#059669"))
+                fig2.add_trace(go.Bar(name="Desert (no coverage)", x=["PINs"], y=[k], marker_color="#dc2626", text=[k], textposition="inside"))
+                fig2.add_trace(go.Bar(name="Covered", x=["PINs"], y=[max(0, n - k)], marker_color="#059669", text=[max(0, n - k)], textposition="inside"))
                 fig2.update_layout(barmode="stack", height=260, margin=dict(t=30, b=20),
                                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                                    legend=dict(orientation="h", yanchor="bottom", y=-0.25))
                 st.plotly_chart(fig2, use_container_width=True)
             except (TypeError, ValueError):
                 pass
+        elif str(level) == "state" and isinstance(wiv, dict):
+            st.caption("PIN-level desert vs covered stack chart appears when you set **Granularity** to **pin** and re-run analysis (state-level run does not return per-PIN lists).")
 
-        trust_arts = st.session_state.get("match_result", {}).get("trust_artifacts") or {}
+        trust_arts = (st.session_state.get("match_result") or {}).get("trust_artifacts") or {}
         flagged = [f for f in (trust_arts.get("per_facility") or []) if f.get("final_verdict") in ("SUSPICIOUS", "REVIEW")]
         if flagged:
             st.markdown('<div class="section-card"><h4>Flagged Facilities (from Trust Scorer)</h4>', unsafe_allow_html=True)
@@ -1163,7 +1183,7 @@ def _tab_planner() -> None:
         pin = st.text_input("6-digit PIN code", max_chars=6, key="planner_pin", placeholder="e.g. 800001")
     with btn_col:
         st.markdown("")
-        do_pin = st.button("Assess PIN Risk", use_container_width=True)
+        do_pin = st.button("Assess PIN Risk", use_container_width=True, type="secondary")
     st.markdown('</div>', unsafe_allow_html=True)
     st.session_state._planner_pin = pin
     if do_pin:
@@ -1199,7 +1219,10 @@ def _tab_planner() -> None:
                 st.dataframe(df, use_container_width=True, hide_index=True)
 
     st.divider()
+    st.markdown("**Planning report (PDF)**")
     pdf_bytes: bytes | None = None
+    pdf_err: str | None = None
+    pdf_exc: BaseException | None = None
     try:
         pdf_bytes = _generate_mission_pdf(
             specialty=use_spec, level=str(level),
@@ -1209,10 +1232,31 @@ def _tab_planner() -> None:
             d_states=d_states_list or None,
             covered_states=covered_states_list or None,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        pdf_err = _safe_str(e)
+        pdf_exc = e
     if pdf_bytes:
-        st.download_button("Download Planning Report (PDF)", data=pdf_bytes, file_name="carecompass_india_mission_planner.pdf", mime="application/pdf")
+        st.download_button(
+            "Download Planning Report (PDF)",
+            data=pdf_bytes,
+            file_name="carecompass_india_mission_planner.pdf",
+            mime="application/pdf",
+            key="dl_mission_pdf",
+        )
+    else:
+        st.button(
+            "Download Planning Report (PDF) — unavailable",
+            disabled=True,
+            key="mission_pdf_unavail",
+            type="secondary",
+        )
+        st.caption("The planning PDF could not be generated. See details below.")
+        if pdf_err is not None:
+            if _env_truthy("CARECOMPASS_DEBUG") and pdf_exc is not None:
+                st.exception(pdf_exc)
+            else:
+                with st.expander("PDF generation error (for debugging)"):
+                    st.code(pdf_err)
 
 
 # ── Map helpers ─────────────────────────────────────────────────────────────
@@ -1339,6 +1383,10 @@ def _tab_map() -> None:
         st_folium(
             fmap, key="map_empty", width=None, height=500, use_container_width=True,
         )
+        st.caption(
+            "Circles are placed at state centroids. Gaps between circles are geography — not missing data. "
+            "Every Indian state is represented."
+        )
         return
 
     d_states: list[str] = _clean_state_list(des.get("desert_states") or [])
@@ -1415,6 +1463,11 @@ def _tab_map() -> None:
 
     with map_col:
         st_folium(fmap, key=map_key, width=None, height=680, use_container_width=True)
+
+    st.caption(
+        "Circles are placed at state centroids. Gaps between circles are geography — not missing data. "
+        "Every Indian state is represented."
+    )
 
     st.markdown("""
 <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center;font-size:0.82rem;
