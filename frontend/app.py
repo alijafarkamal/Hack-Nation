@@ -1,12 +1,14 @@
 # ruff: noqa: E501
 """CareCompass India — Streamlit frontend (FastAPI only, no Databricks in browser).
 
-Surfaces: Chat (Triage) · Mission Planner · Map
+Surfaces: Triage & Matching · Mission Planner · Desert Map · Query Analytics
 Challenge: Serving A Nation — Hack-Nation × Databricks 2026
 """
 
 from __future__ import annotations
 
+import csv
+import io
 import re
 import sys
 from datetime import datetime
@@ -63,7 +65,7 @@ _FIELD_LABELS: dict[str, str] = {
     "search": "Semantic Search",
     "trust_scorer": "Trust Scorer",
     "trust": "Trust Analysis",
-    "sql": "SQL Query",
+    "sql": "SQL / Genie Query",
     "trust_score": "Trust Score",
     "trust_flag": "Trust Flag",
     "state_normalized": "State",
@@ -79,11 +81,35 @@ _FIELD_LABELS: dict[str, str] = {
     "procedure": "Procedure",
     "name": "Facility Name",
     "diagnosticRadiology": "Diagnostic Radiology",
+    "geo": "Geospatial",
+    "synthesis": "Synthesis",
+    "fallback": "Fallback Synthesis",
+    "structured": "Structured Output",
+    "degradation": "Service Degradation",
+    "search_hit": "Web Search Result",
+    "disclaimer": "Disclaimer",
+    "tavily": "Web Search (Tavily)",
+    "enrichment": "Web Enrichment",
 }
+
+_VERDICT_STYLES: dict[str, tuple[str, str, str]] = {
+    "VERIFIED":   ("#059669", "#d1fae5", "#065f46"),
+    "REVIEW":     ("#d97706", "#fef3c7", "#92400e"),
+    "SUSPICIOUS": ("#dc2626", "#fee2e2", "#991b1b"),
+}
+
+_AGENT_STEPS = [
+    ("Supervisor", "Query normalization and intent classification"),
+    ("SQL / Genie", "Structured data queries across 10k facility records"),
+    ("Vector Search", "Semantic retrieval from unstructured facility notes"),
+    ("IDP Extraction", "Intelligent Document Parsing of free-form text"),
+    ("Trust Scorer", "Two-pass verification: Extractor + Validator + deterministic rules"),
+    ("Geospatial", "Medical desert detection and coverage analysis"),
+    ("Synthesis", "Multi-source fusion with confidence scoring"),
+]
 
 
 def _humanize(text: str) -> str:
-    """Convert snake_case / camelCase DB fields to readable English, strip markdown artifacts."""
     if not text:
         return ""
     if text in _FIELD_LABELS:
@@ -100,14 +126,13 @@ def _humanize_field(key: str) -> str:
 
 
 def _clean_markdown(text: str) -> str:
-    """Strip raw markdown noise (stray ***, excess #, pipe tables) from agent output."""
     text = re.sub(r'\*{3,}', '', text)
     text = re.sub(r'\|$', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\|', '', text, flags=re.MULTILINE)
     return text.strip()
 
 
-# ── CSS ──────────────────────────────────────────────────────────────────────
+# ── CSS (Clinical Light — White + Navy + Blue + Red) ─────────────────────────
 
 def inject_css() -> None:
     st.markdown("""
@@ -115,118 +140,144 @@ def inject_css() -> None:
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
   .block-container { padding-top: 0.5rem; padding-bottom: 1rem; font-family: 'Inter', sans-serif; }
 
-  /* ─── Header (saffron + navy) ─── */
+  /* Header — navy gradient */
   .app-header {
-    background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%);
-    color: #f8fafc; padding: 1.2rem 1.4rem; border-radius: 0.85rem;
-    margin-bottom: 0.8rem;
-    border-bottom: 3px solid #f59e0b;
-    box-shadow: 0 4px 20px rgba(245, 158, 11, 0.08);
+    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #1e40af 100%);
+    color: #fff; padding: 1.2rem 1.5rem; border-radius: 0.85rem;
+    margin-bottom: 0.8rem; border-bottom: 3px solid #f59e0b;
+    box-shadow: 0 4px 15px rgba(30,58,95,0.15);
   }
-  .app-header h1 { margin:0; font-size:1.6rem; font-weight:800; color:#fbbf24;
-    text-shadow: 0 0 20px rgba(251, 191, 36, 0.15); }
-  .app-header p  { margin:0.35rem 0 0 0; opacity:0.9; font-size:0.85rem; color:#cbd5e1; }
-  .app-header .tagline { color: #5eead4; font-weight: 600; }
+  .app-header h1 { margin:0; font-size:1.6rem; font-weight:800; color:#fff; }
+  .app-header .tagline { color: #fbbf24; font-weight: 700; }
+  .app-header p { margin:0.3rem 0 0 0; opacity:0.92; font-size:0.85rem; color:#e0e7ff; }
 
-  /* ─── Metric cards (saffron numbers) ─── */
+  /* Metric cards */
   .metric-box {
-    background: linear-gradient(135deg, rgba(30,41,59,0.7) 0%, rgba(15,23,42,0.7) 100%);
-    border: 1px solid rgba(245, 158, 11, 0.2);
+    background: #fff; border: 1px solid #e2e8f0;
     border-radius: 0.85rem; padding: 0.9rem 1rem; text-align: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   }
-  .metric-box .num   { font-size: 1.6rem; font-weight: 800; color: #f59e0b; margin:0; }
-  .metric-box .label { font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;
+  .metric-box .num { font-size: 1.6rem; font-weight: 800; color: #1e3a5f; margin:0; }
+  .metric-box .label { font-size: 0.7rem; color: #64748b; text-transform: uppercase;
     letter-spacing: 0.06em; margin: 0.15rem 0 0 0; }
 
-  /* ─── Section cards ─── */
+  /* Section cards */
   .section-card {
-    background: linear-gradient(135deg, rgba(15,23,42,0.5) 0%, rgba(30,41,59,0.3) 100%);
-    border: 1px solid rgba(100, 116, 139, 0.3);
+    background: #fff; border: 1px solid #e2e8f0;
     border-radius: 0.85rem; padding: 1.1rem 1.2rem; margin-bottom: 0.65rem;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
   }
-  .section-card h4 { margin:0 0 0.55rem 0; color: #fbbf24; font-size: 0.95rem; font-weight: 700; }
+  .section-card h4 { margin:0 0 0.55rem 0; color: #1e3a5f; font-size: 0.95rem; font-weight: 700; }
 
-  /* ─── Badges (multi-colour) ─── */
+  /* Badges */
   .badge-desert {
-    display:inline-block; background: rgba(220, 38, 38, 0.15); color: #fca5a5;
-    border: 1px solid rgba(248, 113, 113, 0.35); padding: 0.22rem 0.6rem;
+    display:inline-block; background: #fee2e2; color: #991b1b;
+    border: 1px solid #fca5a5; padding: 0.22rem 0.6rem;
     border-radius: 1rem; font-size: 0.76rem; font-weight: 600; margin: 0.12rem;
   }
   .badge-covered {
-    display:inline-block; background: rgba(16, 185, 129, 0.12); color: #6ee7b7;
-    border: 1px solid rgba(52, 211, 153, 0.3); padding: 0.22rem 0.6rem;
+    display:inline-block; background: #d1fae5; color: #065f46;
+    border: 1px solid #6ee7b7; padding: 0.22rem 0.6rem;
     border-radius: 1rem; font-size: 0.76rem; font-weight: 600; margin: 0.12rem;
   }
   .badge-cap {
-    display:inline-block; background: rgba(14, 165, 233, 0.12); color: #7dd3fc;
-    border: 1px solid rgba(56, 189, 248, 0.3); padding: 0.22rem 0.6rem;
+    display:inline-block; background: #dbeafe; color: #1e40af;
+    border: 1px solid #93c5fd; padding: 0.22rem 0.6rem;
     border-radius: 1rem; font-size: 0.76rem; font-weight: 600; margin: 0.12rem;
   }
   .badge-flag {
-    display:inline-block; background: rgba(244, 63, 94, 0.12); color: #fda4af;
-    border: 1px solid rgba(251, 113, 133, 0.35); padding: 0.22rem 0.6rem;
+    display:inline-block; background: #fef3c7; color: #92400e;
+    border: 1px solid #fcd34d; padding: 0.22rem 0.6rem;
     border-radius: 1rem; font-size: 0.76rem; font-weight: 600; margin: 0.12rem;
   }
   .badge-src {
-    display:inline-block; background: rgba(139, 92, 246, 0.12); color: #c4b5fd;
-    border: 1px solid rgba(167, 139, 250, 0.3); padding: 0.15rem 0.5rem;
+    display:inline-block; background: #ede9fe; color: #5b21b6;
+    border: 1px solid #c4b5fd; padding: 0.15rem 0.5rem;
     border-radius: 0.5rem; font-size: 0.7rem; font-weight: 600; margin-right: 0.3rem;
   }
 
-  /* ─── Output cards (answer / evidence / quality) ─── */
+  /* Output cards */
   .answer-card {
-    background: linear-gradient(135deg, rgba(245,158,11,0.06) 0%, rgba(217,119,6,0.04) 100%);
-    border-left: 4px solid #f59e0b; border-radius: 0 0.75rem 0.75rem 0;
-    padding: 1rem 1.3rem; margin-bottom: 0.7rem;
+    background: #fffbeb; border-left: 4px solid #f59e0b;
+    border-radius: 0 0.75rem 0.75rem 0; padding: 1rem 1.3rem; margin-bottom: 0.7rem;
   }
-  .answer-card h3 { color: #fbbf24; font-size: 1.05rem; margin: 0 0 0.5rem 0; font-weight: 700; }
+  .answer-card h3 { color: #92400e; font-size: 1.05rem; margin: 0 0 0.5rem 0; font-weight: 700; }
 
   .evidence-card {
-    background: linear-gradient(135deg, rgba(14,165,233,0.04) 0%, rgba(56,189,248,0.02) 100%);
-    border-left: 4px solid #0ea5e9; border-radius: 0 0.75rem 0.75rem 0;
-    padding: 1rem 1.3rem; margin-bottom: 0.7rem;
+    background: #eff6ff; border-left: 4px solid #2563eb;
+    border-radius: 0 0.75rem 0.75rem 0; padding: 1rem 1.3rem; margin-bottom: 0.7rem;
   }
-  .evidence-card h3 { color: #38bdf8; font-size: 1rem; margin: 0 0 0.5rem 0; font-weight: 700; }
+  .evidence-card h3 { color: #1e40af; font-size: 1rem; margin: 0 0 0.5rem 0; font-weight: 700; }
 
   .notes-card {
-    background: linear-gradient(135deg, rgba(16,185,129,0.04) 0%, rgba(52,211,153,0.02) 100%);
-    border-left: 4px solid #10b981; border-radius: 0 0.75rem 0.75rem 0;
-    padding: 1rem 1.3rem; margin-bottom: 0.7rem;
+    background: #ecfdf5; border-left: 4px solid #059669;
+    border-radius: 0 0.75rem 0.75rem 0; padding: 1rem 1.3rem; margin-bottom: 0.7rem;
   }
-  .notes-card h3 { color: #34d399; font-size: 1rem; margin: 0 0 0.5rem 0; font-weight: 700; }
+  .notes-card h3 { color: #065f46; font-size: 1rem; margin: 0 0 0.5rem 0; font-weight: 700; }
 
-  /* ─── Citation row ─── */
+  /* Trust cards */
+  .trust-card {
+    background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 0.75rem; padding: 0.8rem 1rem; margin-bottom: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .trust-card .fac-name { font-weight: 700; color: #1e293b; font-size: 0.9rem; }
+  .trust-bar { height: 8px; border-radius: 4px; background: #e2e8f0; margin: 0.3rem 0; overflow: hidden; }
+  .trust-fill { height: 100%; border-radius: 4px; }
+
+  .verdict-badge {
+    display:inline-block; padding: 0.15rem 0.6rem;
+    border-radius: 1rem; font-size: 0.72rem; font-weight: 700;
+  }
+
+  /* Agent pipeline steps */
+  .pipeline-steps {
+    display: flex; gap: 0; align-items: center; flex-wrap: wrap;
+    margin: 0.5rem 0;
+  }
+  .pipe-step {
+    padding: 0.3rem 0.7rem; font-size: 0.72rem; font-weight: 600;
+    border: 1px solid #cbd5e1; color: #64748b; background: #f8fafc;
+  }
+  .pipe-step:first-child { border-radius: 1rem 0 0 1rem; }
+  .pipe-step:last-child  { border-radius: 0 1rem 1rem 0; }
+  .pipe-step.active { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+  .pipe-arrow { color: #94a3b8; font-size: 0.7rem; margin: 0 -1px; z-index: 1; }
+
+  /* Citation row */
   .cite-row {
-    background: rgba(15, 23, 42, 0.35); border: 1px solid rgba(100,116,139,0.2);
+    background: #f8fafc; border: 1px solid #e2e8f0;
     border-radius: 0.6rem; padding: 0.6rem 0.85rem; margin-bottom: 0.4rem;
   }
-  .cite-row .cite-num { color: #fbbf24; font-weight: 800; font-size: 0.85rem; }
-  .cite-row .cite-fac { color: #e2e8f0; font-weight: 600; font-size: 0.85rem; }
-  .cite-row .cite-field { color: #94a3b8; font-size: 0.78rem; }
-  .cite-row .cite-snip  { color: #cbd5e1; font-size: 0.8rem; font-style: italic; margin-top: 0.2rem; }
+  .cite-row .cite-num { color: #1e3a5f; font-weight: 800; font-size: 0.85rem; }
+  .cite-row .cite-fac { color: #1e293b; font-weight: 600; font-size: 0.85rem; }
+  .cite-row .cite-field { color: #64748b; font-size: 0.78rem; }
+  .cite-row .cite-snip  { color: #475569; font-size: 0.8rem; font-style: italic; margin-top: 0.2rem; }
 
   .conf-pill {
     display:inline-block; padding: 0.12rem 0.45rem;
     border-radius: 0.5rem; font-size: 0.68rem; font-weight: 700; margin-left: 0.3rem;
   }
-  .conf-high   { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(52,211,153,0.3); }
-  .conf-medium { background: rgba(245,158,11,0.15); color: #fcd34d; border: 1px solid rgba(251,191,36,0.3); }
-  .conf-low    { background: rgba(244,63,94,0.15); color: #fda4af; border: 1px solid rgba(251,113,133,0.3); }
+  .conf-high   { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+  .conf-medium { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .conf-low    { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
 
   .trace-id {
-    font-size: 0.7rem; color: #64748b; background: rgba(30,41,59,0.4);
-    border: 1px solid rgba(100,116,139,0.2); border-radius: 0.4rem;
+    font-size: 0.7rem; color: #64748b; background: #f1f5f9;
+    border: 1px solid #e2e8f0; border-radius: 0.4rem;
     padding: 0.2rem 0.5rem; display: inline-block; margin-top: 0.3rem;
     font-family: monospace;
   }
 
-  .disclaimer { font-size:0.8rem; color:#94a3b8; border-left:3px solid #d97706;
+  .disclaimer { font-size:0.8rem; color:#64748b; border-left:3px solid #2563eb;
     padding-left:0.6rem; margin:0.4rem 0; }
 
+  .enrichment-card {
+    background: #f0fdf4; border: 1px solid #bbf7d0; border-left: 4px solid #16a34a;
+    border-radius: 0 0.75rem 0.75rem 0; padding: 0.8rem 1rem; margin-bottom: 0.5rem;
+  }
+
   #MainMenu { visibility: hidden; }
-  header[data-testid="stHeader"] { background: #0b0f19; }
   footer { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
@@ -264,16 +315,16 @@ def _wilson_gauge(iv: dict[str, Any] | None, title: str = "Wilson Score Interval
         return None
     fig = go.Figure()
     fig.add_trace(go.Bar(x=[hi - lo], y=[title], base=[lo], orientation="h",
-                         marker=dict(color="rgba(245,158,11,0.25)"), showlegend=False, hoverinfo="skip"))
+                         marker=dict(color="rgba(37,99,235,0.2)"), showlegend=False, hoverinfo="skip"))
     fig.add_trace(go.Scatter(x=[pt], y=[title], mode="markers+text",
-                             marker=dict(size=14, color="#f59e0b", symbol="diamond"),
+                             marker=dict(size=14, color="#1e3a5f", symbol="diamond"),
                              text=[f"{round(pt*100,1)}%"], textposition="top center",
-                             textfont=dict(color="#fbbf24", size=12), showlegend=False))
+                             textfont=dict(color="#1e3a5f", size=12), showlegend=False))
     fig.update_layout(
-        xaxis=dict(range=[0, 1], tickformat=".0%", gridcolor="rgba(148,163,184,0.15)"),
+        xaxis=dict(range=[0, 1], tickformat=".0%", gridcolor="rgba(0,0,0,0.06)"),
         yaxis=dict(visible=False), height=110, margin=dict(l=10, r=10, t=25, b=10),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        title=dict(text=f"<b>{title}</b>", font=dict(size=13, color="#94a3b8"), x=0),
+        title=dict(text=f"<b>{title}</b>", font=dict(size=13, color="#475569"), x=0),
     )
     return fig
 
@@ -286,17 +337,22 @@ def _conf_pill(conf: float | None) -> str:
     except (TypeError, ValueError):
         return ""
     pct = round(cv * 100)
-    if cv >= 0.8:
-        cls = "conf-high"
-    elif cv >= 0.5:
-        cls = "conf-medium"
-    else:
-        cls = "conf-low"
+    cls = "conf-high" if cv >= 0.8 else ("conf-medium" if cv >= 0.5 else "conf-low")
     return f'<span class="conf-pill {cls}">{pct}%</span>'
 
 
+def _log_query(symptoms: str, caps: list[str], state_hint: str = "") -> None:
+    if "query_log" not in st.session_state:
+        st.session_state.query_log = []
+    st.session_state.query_log.append({
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "symptoms": symptoms[:200],
+        "capabilities": ", ".join(caps),
+        "state_hint": state_hint,
+    })
+
+
 def _render_agent_output(content: str) -> None:
-    """Parse agent markdown into styled cards. Cleans markdown noise and humanizes text."""
     content = _clean_markdown(str(content))
     sections = re.split(r'\n(?=#{1,3}\s)', content)
     for section in sections:
@@ -316,7 +372,7 @@ def _render_agent_output(content: str) -> None:
             st.markdown('</div>', unsafe_allow_html=True)
         elif "data quality" in lower[:40] or "quality" in lower[:30] or "confidence" in lower[:30]:
             body = re.sub(r'^#{1,3}\s*.*?\n', '', section, count=1).strip()
-            st.markdown('<div class="notes-card"><h3>Data Quality &amp; Confidence Assessment</h3>', unsafe_allow_html=True)
+            st.markdown('<div class="notes-card"><h3>Data Quality and Confidence Assessment</h3>', unsafe_allow_html=True)
             st.markdown(_clean_markdown(body))
             st.markdown('</div>', unsafe_allow_html=True)
         elif section.startswith("#"):
@@ -333,18 +389,15 @@ def _render_agent_output(content: str) -> None:
 
 
 def _render_citations(cits: list[dict[str, Any]], label: str = "Citations", max_visible: int = 8) -> None:
-    """Compact, humanized citation cards. Shows top N, rest in expander."""
     if not cits:
         return
     st.markdown(f'<div class="section-card"><h4>{label}</h4>', unsafe_allow_html=True)
-    visible = cits[:max_visible]
-    rest = cits[max_visible:]
-    for i, c in enumerate(visible):
+    for i, c in enumerate(cits[:max_visible]):
         _render_single_citation(i + 1, c)
     st.markdown('</div>', unsafe_allow_html=True)
-    if rest:
-        with st.expander(f"Show {len(rest)} more citations"):
-            for i, c in enumerate(rest, start=max_visible + 1):
+    if len(cits) > max_visible:
+        with st.expander(f"Show {len(cits) - max_visible} more citations"):
+            for i, c in enumerate(cits[max_visible:], start=max_visible + 1):
                 _render_single_citation(i, c)
 
 
@@ -353,10 +406,8 @@ def _render_single_citation(idx: int, c: dict[str, Any]) -> None:
     fac = c.get("facility", "")
     field = _humanize_field(c.get("field", ""))
     snip = _humanize(c.get("evidence_snippet", ""))[:250]
-    conf = c.get("confidence")
-    pill = _conf_pill(conf)
-    parts = [f'<span class="cite-num">[{idx}]</span>']
-    parts.append(f'<span class="badge-src">{src}</span>')
+    pill = _conf_pill(c.get("confidence"))
+    parts = [f'<span class="cite-num">[{idx}]</span>', f'<span class="badge-src">{src}</span>']
     if fac:
         parts.append(f'<span class="cite-fac">{fac}</span>')
     if field:
@@ -368,6 +419,154 @@ def _render_single_citation(idx: int, c: dict[str, Any]) -> None:
         html += f'<div class="cite-snip">{snip}</div>'
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
+
+
+def _render_agent_pipeline(agents_merged: list[str] | None = None) -> None:
+    """Horizontal step indicator showing which agents in the pipeline were active."""
+    merged_set = set(_humanize(a).lower() for a in (agents_merged or []))
+    steps_html = []
+    for name, desc in _AGENT_STEPS:
+        active = any(tok in name.lower() for tok in merged_set) or (not agents_merged)
+        cls = "pipe-step active" if active else "pipe-step"
+        steps_html.append(f'<span class="{cls}" title="{desc}">{name}</span>')
+    joined = '<span class="pipe-arrow">›</span>'.join(steps_html)
+    st.markdown(f'<div class="pipeline-steps">{joined}</div>', unsafe_allow_html=True)
+
+
+def _render_trust_report(trust_artifacts: dict[str, Any] | None) -> None:
+    """Render the Trust Scorer results as prominent per-facility cards."""
+    if not trust_artifacts or not isinstance(trust_artifacts, dict):
+        return
+    per_fac = trust_artifacts.get("per_facility") or []
+    summary = trust_artifacts.get("summary") or {}
+    if not per_fac:
+        return
+
+    n = summary.get("n", len(per_fac))
+    suspicious = summary.get("suspicious", 0)
+    review = summary.get("review", 0)
+    verified = n - suspicious - review
+
+    st.markdown('<div class="section-card"><h4>Trust Scorer — Verification Report</h4>', unsafe_allow_html=True)
+    st.caption("Two-pass verification: Pass 1 (LLM Extractor) extracts claims from facility notes. "
+               "Pass 2 (LLM Validator) cross-references against medical standards. "
+               "Deterministic rules flag contradictions (e.g. surgery claimed without anesthesia).")
+
+    vc1, vc2, vc3 = st.columns(3)
+    vc1.markdown(f'<div class="metric-box"><p class="num" style="color:#059669">{verified}</p><p class="label">Verified</p></div>', unsafe_allow_html=True)
+    vc2.markdown(f'<div class="metric-box"><p class="num" style="color:#d97706">{review}</p><p class="label">Needs Review</p></div>', unsafe_allow_html=True)
+    vc3.markdown(f'<div class="metric-box"><p class="num" style="color:#dc2626">{suspicious}</p><p class="label">Suspicious</p></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    for fac in per_fac[:10]:
+        fname = fac.get("facility", "Unknown")
+        combined = float(fac.get("combined_trust_0_1", 0) or 0)
+        verdict = fac.get("final_verdict", "REVIEW")
+        flags = fac.get("all_flags") or []
+        disagreements = fac.get("disagreements") or []
+        vcolor, vbg, vtext = _VERDICT_STYLES.get(verdict, ("#64748b", "#f1f5f9", "#334155"))
+        pct = round(combined * 100)
+        bar_color = vcolor
+
+        st.markdown(f'<div class="trust-card">', unsafe_allow_html=True)
+        cols = st.columns([3, 1, 1])
+        with cols[0]:
+            st.markdown(f'<span class="fac-name">{fname}</span>', unsafe_allow_html=True)
+        with cols[1]:
+            st.markdown(
+                f'<div class="trust-bar"><div class="trust-fill" style="width:{pct}%;background:{bar_color};"></div></div>'
+                f'<span style="font-size:0.75rem;color:{vcolor};font-weight:700;">{pct}% trust</span>',
+                unsafe_allow_html=True,
+            )
+        with cols[2]:
+            st.markdown(
+                f'<span class="verdict-badge" style="background:{vbg};color:{vtext};border:1px solid {vcolor};">'
+                f'{"Verified by Medical Standard Agent" if verdict == "VERIFIED" else verdict}</span>',
+                unsafe_allow_html=True,
+            )
+        if flags:
+            for f in flags[:3]:
+                st.markdown(f'<span style="font-size:0.78rem;color:#dc2626;">⚠ {_humanize(f)}</span>', unsafe_allow_html=True)
+        if disagreements:
+            for d in disagreements[:2]:
+                st.markdown(f'<span style="font-size:0.78rem;color:#d97706;">⚡ {_humanize(d)}</span>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    top_reasons = summary.get("top_contradiction_reasons") or []
+    if top_reasons:
+        st.markdown('<div class="section-card"><h4>Top Contradiction Patterns</h4>', unsafe_allow_html=True)
+        for r in top_reasons[:5]:
+            reason = _humanize(r.get("reason", ""))
+            count = r.get("count", 0)
+            st.markdown(f'- **{reason}** (found in {count} facilities)', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+def _render_thought_process(mr: dict[str, Any]) -> None:
+    """Show the Agent Thought Process expander with step-by-step reasoning."""
+    syn = mr.get("synthesis_artifacts") or {}
+    trust = mr.get("trust_artifacts") or {}
+    agents = syn.get("agents_merged") or []
+    conf = syn.get("confidence_0_1")
+    dqn = syn.get("data_quality_notes", "")
+    conf_notes = syn.get("confidence_notes") or []
+
+    st.markdown('<div class="section-card"><h4>Agent Thought Process — Chain of Reasoning</h4>', unsafe_allow_html=True)
+    _render_agent_pipeline(agents)
+
+    if agents:
+        st.markdown(f"**Sources merged:** {', '.join([_humanize(a) for a in agents])}")
+    if conf is not None:
+        try:
+            cv = float(conf)
+            color = "#059669" if cv >= 0.7 else ("#d97706" if cv >= 0.4 else "#dc2626")
+            st.markdown(
+                f'**Synthesis confidence:** <span style="color:{color};font-weight:800;">{round(cv*100)}%</span>',
+                unsafe_allow_html=True,
+            )
+        except (TypeError, ValueError):
+            pass
+    if dqn:
+        st.markdown(f"**Data quality:** {_clean_markdown(dqn)}")
+    for cn in conf_notes[:3]:
+        st.caption(f"- {_humanize(str(cn))}")
+
+    n_trust = len(trust.get("per_facility") or [])
+    if n_trust:
+        st.markdown(f"**Trust verification:** Analyzed {n_trust} facilities through dual-LLM pipeline + deterministic medical rules")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def _render_enrichment(facility_name: str) -> None:
+    """Call /enrichment/facility and display results inline."""
+    with st.status(f"Searching web for {facility_name}…", expanded=True) as status:
+        try:
+            result = api_client.enrichment_facility(facility_name)
+            status.update(label="Web search complete", state="complete", expanded=False)
+        except Exception as e:
+            status.update(label="Error", state="error", expanded=False)
+            st.error(_safe_str(e))
+            return
+    if not result.get("success"):
+        st.warning(f"Enrichment unavailable: {result.get('error', 'Unknown error')}")
+        return
+    enr = result.get("enrichment") or {}
+    st.markdown('<div class="enrichment-card">', unsafe_allow_html=True)
+    st.markdown(f"**Web Enrichment for {facility_name}**")
+    phone = enr.get("phone_estimated")
+    website = enr.get("website_estimated")
+    hours = enr.get("hours_note", "")
+    conf = enr.get("confidence_0_1")
+    if phone:
+        st.markdown(f"Phone: **{phone}**")
+    if website:
+        st.markdown(f"Website: [{website}]({website})")
+    if hours:
+        st.caption(hours)
+    if conf is not None:
+        st.caption(f"Enrichment confidence: {round(float(conf)*100)}%")
+    st.markdown('</div>', unsafe_allow_html=True)
+    _render_citations(result.get("citations") or [], label="Web Search Citations", max_visible=3)
 
 
 def _trace_id_html(session_id: str = "", correlation_id: str = "") -> str:
@@ -394,9 +593,10 @@ def _generate_mission_pdf(
     pdf.set_auto_page_break(True, margin=12)
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 16)
-    pdf.set_text_color(30, 30, 30)
+    pdf.set_text_color(30, 58, 95)
     pdf.cell(0, 8, "CareCompass India — Mission Planner Report", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(60, 60, 60)
     pdf.cell(0, 5, f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
     pdf.set_font("Helvetica", "I", 8)
@@ -425,8 +625,8 @@ def _generate_mission_pdf(
     pdf.set_font("Helvetica", "I", 7)
     pdf.set_text_color(100, 100, 100)
     pdf.multi_cell(0, 3.5, _safe(
-        "DISCLAIMER: This report is generated by an AI analytical system for planning purposes only. "
-        "Data may be incomplete. Statistics use Wilson score intervals for finite-sample coverage estimation. "
+        "DISCLAIMER: Generated by an AI analytical system for planning purposes only. "
+        "Statistics use Wilson score intervals for finite-sample coverage estimation. "
         "Health authorities should verify findings independently."
     ))
     out = pdf.output(dest="S")
@@ -441,24 +641,17 @@ def _service_status() -> None:
             try:
                 h = api_client.healthz()
                 st.success(f"**Health check** — Status: OK · Service: {h.get('service', '—')}")
-                tw = h.get("integrations", {}).get("twilio", {})
-                tv = h.get("integrations", {}).get("tavily", {})
-                st.caption(f"Twilio: {'Active' if tw.get('configured') else 'Inactive'} · Tavily: {'Active' if tv.get('configured') else 'Inactive'}")
             except Exception as e:
                 st.error(f"Health check failed: {_safe_str(e)}")
             try:
                 r = api_client.readiness()
                 ok = bool(r.get("ok", False))
-                msg = f"**Readiness** — {'All systems operational' if ok else 'Some components degraded'}"
-                (st.success if ok else st.warning)(msg)
-                for chk in (r.get("checks") or []):
-                    icon = "✅" if chk.get("ok") else "⚠️"
-                    st.caption(f"{icon} {_humanize(chk.get('component', '—'))} — {chk.get('detail', '—')}")
+                (st.success if ok else st.warning)(f"**Readiness** — {'All systems operational' if ok else 'Some components degraded'}")
             except Exception as e:
                 st.error(f"Readiness check failed: {_safe_str(e)}")
 
 
-# ── Tab 1: Chat (Triage) ────────────────────────────────────────────────────
+# ── Tab 1: Triage & Matching ────────────────────────────────────────────────
 
 def _tab_triage() -> None:
     st.markdown(f'<p class="disclaimer">{DISCLAIMER_TRIAGE}</p>', unsafe_allow_html=True)
@@ -491,6 +684,8 @@ def _tab_triage() -> None:
                     st.session_state.triage_session = api_client.triage_analyze(symptoms.strip())
                     st.session_state.match_result = None
                     status.update(label="Analysis complete", state="complete", expanded=False)
+                    caps = st.session_state.triage_session.get("capabilities_needed") or []
+                    _log_query(symptoms.strip(), caps)
                 except Exception as e:
                     status.update(label="Error", state="error", expanded=False)
                     st.error(_safe_str(e))
@@ -558,14 +753,16 @@ def _tab_triage() -> None:
     mr = st.session_state.match_result
     if mr:
         st.markdown(f'<p class="disclaimer">{mr.get("safety_disclaimer") or DISCLAIMER_MATCH}</p>', unsafe_allow_html=True)
-        mdc, mw = mr.get("degraded_components") or [], mr.get("warnings") or []
-        if mdc or mw:
-            st.warning("**Notice:** " + " · ".join([_humanize(w) for w in [*mdc, *mw]]))
+
+        _render_thought_process(mr)
+        _render_trust_report(mr.get("trust_artifacts"))
+
         out_md = mr.get("graph_summary") or mr.get("final_answer")
         if out_md:
             _render_agent_output(str(out_md))
         _render_citations(mr.get("citations") or [], label="Agentic Traceability — Chain of Thought", max_visible=8)
-        with st.expander("Raw Agent Artifacts (Extraction · Trust · Synthesis)"):
+
+        with st.expander("Raw Agent Artifacts (Extraction / Trust / Synthesis)"):
             st.json({
                 "extraction_result": mr.get("extraction_result"),
                 "trust_artifacts": mr.get("trust_artifacts"),
@@ -574,6 +771,17 @@ def _tab_triage() -> None:
         tid = _trace_id_html(mr.get("session_id", ts.get("session_id", "") if ts else ""), mr.get("correlation_id", ""))
         if tid:
             st.markdown(tid, unsafe_allow_html=True)
+
+        st.divider()
+        st.markdown('<div class="section-card"><h4>Enrich with Web Data</h4>', unsafe_allow_html=True)
+        st.caption("Search the web (Tavily) to fill in missing contact info, hours, and verify facility data.")
+        enrich_name = st.text_input("Facility name to enrich", key="enrich_fac_name", placeholder="e.g. GRS Hospital and Heart Centre")
+        if st.button("Search Web", key="btn_enrich"):
+            if enrich_name.strip():
+                _render_enrichment(enrich_name.strip())
+            else:
+                st.error("Enter a facility name.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     st.divider()
     with st.expander("Referral (Preview and Send SMS)"):
@@ -605,8 +813,6 @@ def _tab_triage() -> None:
                 try:
                     send = api_client.referral_send(preview_id=str(pid), to_phone=str(st.session_state.get("ref_to_phone") or ""))
                     st.success(f"Sent via {send.get('mode', '—')} · Audit ID: {send.get('audit_id', '—')}")
-                    if send.get("provider_error"):
-                        st.caption(f"Provider note: {send.get('provider_error')}")
                 except Exception as e:
                     st.error(_safe_str(e))
 
@@ -654,22 +860,19 @@ def _tab_planner() -> None:
         d_pins = rep.get("desert_pins") or []
 
         mc1, mc2, mc3 = st.columns(3)
-        with mc1:
-            st.markdown(f'<div class="metric-box"><p class="num">{len(d_states)}</p><p class="label">Desert States</p></div>', unsafe_allow_html=True)
-        with mc2:
-            st.markdown(f'<div class="metric-box"><p class="num">{len(d_pins)}</p><p class="label">Desert PIN Codes</p></div>', unsafe_allow_html=True)
-        with mc3:
-            n_val = rep.get("desert_pin_ratio_interval", {}).get("n", "—")
-            st.markdown(f'<div class="metric-box"><p class="num">{n_val}</p><p class="label">Total PINs Analyzed</p></div>', unsafe_allow_html=True)
+        mc1.markdown(f'<div class="metric-box"><p class="num">{len(d_states)}</p><p class="label">Desert States</p></div>', unsafe_allow_html=True)
+        mc2.markdown(f'<div class="metric-box"><p class="num">{len(d_pins)}</p><p class="label">Desert PIN Codes</p></div>', unsafe_allow_html=True)
+        n_val = rep.get("desert_pin_ratio_interval", {}).get("n", "—")
+        mc3.markdown(f'<div class="metric-box"><p class="num">{n_val}</p><p class="label">Total PINs Analyzed</p></div>', unsafe_allow_html=True)
 
         wiv = rep.get("desert_pin_ratio_interval")
         if isinstance(wiv, dict):
             st.markdown('<div class="section-card"><h4>Statistical Confidence — Wilson Score Interval</h4>', unsafe_allow_html=True)
-            st.caption("Binomial confidence interval accounting for finite sample size. This is not a simple proportion — it adjusts for dataset size uncertainty.")
+            st.caption("Binomial confidence interval accounting for finite sample size.")
             fig = _wilson_gauge(wiv, title=f"Desert proportion for {use_spec.title()} ({level.upper()} level)")
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
-            st.markdown(f"<p style='color:#94a3b8;font-size:0.85rem;'>{_wilson_text(wiv)}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:#475569;font-size:0.85rem;'>{_wilson_text(wiv)}</p>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
         if d_states:
@@ -677,7 +880,7 @@ def _tab_planner() -> None:
             st.markdown(" ".join(f'<span class="badge-desert">{s}</span>' for s in d_states[:40]), unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
         if d_pins:
-            st.markdown(f'<div class="section-card"><h4>Desert PIN Codes (showing {min(60, len(d_pins))} of {len(d_pins)})</h4>', unsafe_allow_html=True)
+            st.markdown(f'<div class="section-card"><h4>Desert PIN Codes ({min(60, len(d_pins))} of {len(d_pins)})</h4>', unsafe_allow_html=True)
             st.markdown(" ".join(f'<span class="badge-desert">{p}</span>' for p in d_pins[:60]), unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -685,18 +888,15 @@ def _tab_planner() -> None:
             try:
                 n, k = int(wiv["n"]), int(wiv["k"])
                 fig2 = go.Figure()
-                fig2.add_trace(go.Bar(name="Desert (no coverage)", x=["Coverage Breakdown"], y=[k], marker_color="#ef4444"))
-                fig2.add_trace(go.Bar(name="Covered", x=["Coverage Breakdown"], y=[max(0, n - k)], marker_color="#10b981"))
+                fig2.add_trace(go.Bar(name="Desert (no coverage)", x=["Coverage"], y=[k], marker_color="#dc2626"))
+                fig2.add_trace(go.Bar(name="Covered", x=["Coverage"], y=[max(0, n - k)], marker_color="#059669"))
                 fig2.update_layout(barmode="stack", height=260, margin=dict(t=30, b=20),
                                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                   legend=dict(orientation="h", yanchor="bottom", y=-0.25, font=dict(color="#94a3b8")))
+                                   legend=dict(orientation="h", yanchor="bottom", y=-0.25))
                 st.plotly_chart(fig2, use_container_width=True)
             except (TypeError, ValueError):
                 pass
         _render_citations(rep.get("citations") or [], label="Policy Analysis Citations", max_visible=5)
-        tid = _trace_id_html("", rep.get("correlation_id", ""))
-        if tid:
-            st.markdown(tid, unsafe_allow_html=True)
 
     st.divider()
     st.markdown('<div class="section-card"><h4>PIN Code Risk Assessment</h4>', unsafe_allow_html=True)
@@ -764,7 +964,7 @@ def _tab_planner() -> None:
 # ── Tab 3: Map ──────────────────────────────────────────────────────────────
 
 def _tab_map() -> None:
-    st.markdown(f'<p class="disclaimer">{DISCLAIMER_POLICY} Desert overlays use state centroids for regional visualization.</p>', unsafe_allow_html=True)
+    st.markdown(f'<p class="disclaimer">{DISCLAIMER_POLICY}</p>', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -792,7 +992,7 @@ def _tab_map() -> None:
     for name, coords in INDIA_STATE_CENTROIDS.items():
         is_desert = name in d_states
         all_state_markers.append({
-            "name": f"{'⚠ DESERT — ' if is_desert else ''}{name}",
+            "name": f"{'DESERT — ' if is_desert else ''}{name}",
             "lat": coords[0], "lon": coords[1],
             "state": name, "pin_code": "—", "_is_desert": is_desert,
         })
@@ -804,26 +1004,23 @@ def _tab_map() -> None:
 
     mc1, mc2 = st.columns(2)
     with mc1:
-        n_desert = len(d_states)
-        n_total = len(INDIA_STATE_CENTROIDS)
-        st.markdown(f'<div class="metric-box"><p class="num">{n_desert} / {n_total}</p><p class="label">Desert States</p></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-box"><p class="num">{len(d_states)} / {len(INDIA_STATE_CENTROIDS)}</p><p class="label">Desert States</p></div>', unsafe_allow_html=True)
     with mc2:
         if des and isinstance(des, dict):
             st.markdown(f'<div class="metric-box"><p class="num">{len(des.get("desert_pins") or [])}</p><p class="label">Desert PIN Codes</p></div>', unsafe_allow_html=True)
 
     st.markdown("""
 <div style="display:flex;gap:1.2rem;flex-wrap:wrap;align-items:center;
-font-size:0.82rem;color:#94a3b8;margin:0.6rem 0;padding:0.6rem 0.8rem;
-background:linear-gradient(135deg,rgba(15,23,42,0.5),rgba(30,41,59,0.3));
-border:1px solid rgba(100,116,139,0.2);border-radius:0.6rem;">
-  <span style="font-weight:700;color:#e2e8f0;">Map Legend:</span>
-  <span><span style="color:#f59e0b;">●</span> Amber circle — Medical desert (no specialty coverage)</span>
-  <span><span style="color:#dc2626;">●</span> Red marker — Desert state centroid</span>
-  <span><span style="color:#16a34a;">●</span> Green marker — State with coverage</span>
+font-size:0.82rem;color:#475569;margin:0.6rem 0;padding:0.6rem 0.8rem;
+background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.6rem;">
+  <span style="font-weight:700;color:#1e293b;">Map Legend:</span>
+  <span><span style="color:#f59e0b;">&#9679;</span> Amber circle — Medical desert</span>
+  <span><span style="color:#dc2626;">&#9679;</span> Red marker — Desert state</span>
+  <span><span style="color:#16a34a;">&#9679;</span> Green marker — State with coverage</span>
 </div>
 """, unsafe_allow_html=True)
 
-    with st.expander("View Desert Lists (States and PIN Codes)"):
+    with st.expander("View Desert Lists"):
         if des and isinstance(des, dict):
             ds = des.get("desert_states") or []
             dp = des.get("desert_pins") or []
@@ -831,11 +1028,62 @@ border:1px solid rgba(100,116,139,0.2);border-radius:0.6rem;">
                 st.markdown("**States with zero coverage:**")
                 st.markdown(" ".join(f'<span class="badge-desert">{s}</span>' for s in ds[:100]), unsafe_allow_html=True)
             if dp:
-                st.markdown(f"**Desert PIN codes (showing {min(100, len(dp))} of {len(dp)}):**")
+                st.markdown(f"**Desert PIN codes ({min(100, len(dp))} of {len(dp)}):**")
                 st.markdown(" ".join(f'<span class="badge-desert">{p}</span>' for p in dp[:100]), unsafe_allow_html=True)
     if des and isinstance(des, dict):
         buf = "\n".join((des.get("desert_states") or []))
         st.download_button("Download Desert States", data=buf, file_name="desert_states.txt")
+
+
+# ── Tab 4: Query Analytics ──────────────────────────────────────────────────
+
+def _tab_analytics() -> None:
+    st.markdown('<div class="section-card"><h4>Public Health Query Analytics</h4>', unsafe_allow_html=True)
+    st.caption("Session-scoped log of all triage queries. Can be used for public health surveillance — "
+               "tracking which symptoms and specialties are most searched by region.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    log = st.session_state.get("query_log") or []
+    if not log:
+        st.info("No queries logged yet. Run a triage analysis to start collecting data.")
+        return
+
+    df = pd.DataFrame(log)
+    st.markdown(f'<div class="section-card"><h4>Query Log ({len(log)} queries this session)</h4>', unsafe_allow_html=True)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    all_caps: list[str] = []
+    for entry in log:
+        for c in (entry.get("capabilities") or "").split(", "):
+            c = c.strip()
+            if c:
+                all_caps.append(c)
+    if all_caps:
+        cap_counts = pd.Series(all_caps).value_counts().reset_index()
+        cap_counts.columns = ["Capability", "Queries"]
+        fig = go.Figure(go.Bar(
+            x=cap_counts["Queries"], y=cap_counts["Capability"],
+            orientation="h", marker_color="#2563eb",
+        ))
+        fig.update_layout(
+            title="Most Requested Capabilities",
+            height=max(200, len(cap_counts) * 35),
+            margin=dict(l=10, r=10, t=40, b=10),
+            yaxis=dict(autorange="reversed"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=["timestamp", "symptoms", "capabilities", "state_hint"])
+    writer.writeheader()
+    writer.writerows(log)
+    st.download_button(
+        "Download Query Log (CSV)",
+        data=buf.getvalue(),
+        file_name=f"carecompass_query_log_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+    )
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -855,20 +1103,24 @@ def main() -> None:
 <div class="app-header">
   <h1>CareCompass — India</h1>
   <p><span class="tagline">Agentic Healthcare Intelligence for 1.4 Billion Lives</span><br>
-  Capability triage · medical desert mapping · policy analytics<br>
+  Capability triage · medical desert mapping · trust verification · policy analytics<br>
   <small>Powered by Databricks (Genie · Vector Search · Model Serving · MLflow 3) via FastAPI</small></p>
 </div>
 """, unsafe_allow_html=True)
 
     _service_status()
 
-    t_chat, t_plan, t_map = st.tabs(["🔍 Triage & Matching", "📊 Mission Planner", "🗺️ Desert Map"])
+    t_chat, t_plan, t_map, t_analytics = st.tabs([
+        "Triage & Matching", "Mission Planner", "Desert Map", "Query Analytics",
+    ])
     with t_chat:
         _tab_triage()
     with t_plan:
         _tab_planner()
     with t_map:
         _tab_map()
+    with t_analytics:
+        _tab_analytics()
 
 
 if __name__ == "__main__":

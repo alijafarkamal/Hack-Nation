@@ -1,32 +1,105 @@
-# CareCompass India — Streamlit UI
+# CareCompass India — Frontend
 
-Calls the FastAPI backend only. No Databricks credentials in the browser.
+Streamlit-based healthcare intelligence dashboard for the **Serving A Nation** challenge (Hack-Nation x Databricks 2026).
 
-## Local run
+## Architecture
 
-1. **Terminal A — API** (repo root)
+```
+User (Streamlit UI)
+    │
+    ▼
+FastAPI Backend (Render)
+    │
+    ├── /triage/analyze ──► LangGraph Agent Pipeline:
+    │                        Supervisor → SQL/Genie → Vector Search →
+    │                        IDP Extraction → Trust Scorer → Geospatial → Synthesis
+    │
+    ├── /triage/match_facilities ──► Same pipeline, session-scoped
+    │
+    ├── /policy/deserts ──► Statistical desert detection (Wilson CI)
+    ├── /policy/pin-risk ──► PIN-level risk assessment
+    │
+    ├── /enrichment/facility ──► Tavily web search (fills missing data)
+    │
+    └── /referral/preview|send ──► Twilio SMS
+    │
+    ▼
+Databricks Platform
+    ├── Unity Catalog (10k+ facility records)
+    ├── Genie (natural language → SQL)
+    ├── Vector Search (semantic retrieval)
+    ├── Model Serving (LLM inference)
+    └── MLflow 3 (agent tracing & observability)
+```
 
-   ```bash
-   uvicorn backend_api.main:app --reload
-   ```
+## Trust Scorer Logic (Discovery & Verification — 35% of evaluation)
 
-2. **Terminal B — Streamlit**
+The Trust Scorer is a three-layer verification system that acts as the "Truth Gap" navigator. It does NOT simply filter — it performs multi-attribute reasoning.
 
-   ```bash
-   cd frontend
-   pip install -r requirements.txt
-   streamlit run app.py
-   ```
+### Layer 1: Deterministic Rules (`src/utils/trust_rules.py`)
 
-   Set `CARECOMPASS_API_URL` if the API is not on `http://127.0.0.1:8000`.
+Hard-coded medical consistency checks:
 
-## Environment
+| Rule | Logic | Effect |
+|------|-------|--------|
+| Surgery without anesthesia | `surgery_claim == True AND anesthesia_evidence == False` | Trust score × 0.7, flag raised |
+| ICU without ventilator | `icu_claim == True AND ventilator_evidence == False` | Trust score × 0.75, flag raised |
+| Cardiac center with sparse equipment | `cardiac_service == True AND equipment_list < 40 chars` | Trust score × 0.65 |
+| Sparse evidence overall | `specialties + procedures + capabilities all empty AND description < 30 chars` | Trust score × 0.85 |
 
-| Variable | Description |
-|----------|-------------|
-| `CARECOMPASS_API_URL` | Base URL of FastAPI, e.g. `https://your-api.onrender.com` |
+### Layer 2: Two-Pass LLM Verification (`src/nodes/trust_scorer.py`)
 
-## Deploy
+**Pass 1 — Extractor Agent:** Extracts factual claims from each facility's unstructured notes. Returns `extracted_claims`, `uncertainty_0_1`, and `key_evidence_phrase` per facility.
 
-- **Streamlit Community Cloud:** main file `frontend/app.py`, Python 3.11+, set `CARECOMPASS_API_URL` to your deployed API.
-- **Backend API:** use [Render `render.yaml`](../render.yaml) or any host running `uvicorn backend_api.main:app`.
+**Pass 2 — Validator Agent:** Cross-references Pass 1 output against medical operations standards. Returns `contradiction_flags`, `validator_score_0_1`, and `verdict_suggestion` (VERIFIED / REVIEW / SUSPICIOUS).
+
+### Layer 3: Combined Score & Disagreement Detection
+
+```
+combined = 0.45 × deterministic + 0.35 × validator + 0.20 × (1 − uncertainty)
+
+If disagreement between passes → combined × 0.85
+If any flags present → combined × 0.90
+
+Final verdict:
+  combined < 0.35 → SUSPICIOUS
+  combined < 0.55 → REVIEW
+  combined ≥ 0.55 → VERIFIED (downgraded to REVIEW if disagreements exist)
+```
+
+## Verification Agent (Self-Correction)
+
+The Validator (Pass 2) acts as the self-correction loop. Before displaying results, the system:
+1. Extracts claims (Pass 1)
+2. Validates against medical standards (Pass 2)
+3. Computes disagreement between deterministic rules, extractor, and validator
+4. Flags contradictions for human review
+5. Displays "Verified by Medical Standard Agent" badge only when all layers agree
+
+## Web Enrichment Agent (Tavily)
+
+For facilities with missing data (phone, hours, website), the enrichment agent:
+1. Searches the web via Tavily API
+2. Extracts phone numbers (Indian +91 format)
+3. Extracts facility websites
+4. Parses hours information (24/7, specific times)
+5. Returns confidence score and citations from search results
+
+## Statistical Methods
+
+- **Wilson Score Interval:** Used for desert-PIN proportion estimates. Provides finite-sample binomial confidence intervals (not naive proportions).
+- **Trust Score Distribution:** Weighted combination of deterministic, LLM-extractor, and LLM-validator scores with disagreement damping.
+
+## Deployment
+
+- **Frontend:** Streamlit Community Cloud (free)
+- **Backend:** Render free tier
+- **Environment:** Set `CARECOMPASS_API_URL` in Streamlit Cloud secrets
+
+## Running Locally
+
+```bash
+cd frontend
+pip install -r requirements.txt
+CARECOMPASS_API_URL=http://127.0.0.1:8000 streamlit run app.py
+```

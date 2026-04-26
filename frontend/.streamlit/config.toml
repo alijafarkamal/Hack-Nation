@@ -1,10 +1,10 @@
-# Dark UI defaults for CareCompass India
+# Clinical light theme for CareCompass India
 [theme]
-base = "dark"
-primaryColor = "#d97706"
-backgroundColor = "#0b0f19"
-secondaryBackgroundColor = "#111827"
-textColor = "#e2e8f0"
+base = "light"
+primaryColor = "#1e3a5f"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f1f5f9"
+textColor = "#1e293b"
 font = "sans serif"
 
 [server]
