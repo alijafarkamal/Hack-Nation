@@ -95,6 +95,12 @@ For facilities with missing data (phone, hours, website), the enrichment agent:
 - The **triage medical disclaimer** is shown in a high-visibility **red** banner (not a diagnosis; seek emergency care when appropriate).
 - **Per-facility block** (Trust Scorer): facility name, **phone / email / website directly under the name** (Tavily enrichment), trust bar, verdict, **Refer this facility** — one combined card per facility (no second duplicate list).
 - **Referral:** "Refer" copies **patient summary** (symptoms text), **triage red flags**, facility name, phone, and best-known **email** for the optional **“Email facility (patient arrival…)”** `mailto:` button. **Preview Referral** / **Send SMS** use the FastAPI referral endpoints; email is client-side only.
+- **View Agent Logic** (expander on match results): Chronological **thought trace** built from the same `synthesis_artifacts` + `trust_artifacts` JSON the backend returns (source merge, confidence, per-facility trust counts, flags/disagreements, MLflow **correlation id**). Not a full span tree, but a judge-friendly trace narrative.
+- **Why CareCompass is agentic** (expandable on Triage): Short checklist (LangGraph, MLflow, Wilson intervals, two-pass truth verification, policy analytics).
+
+## System Architecture tab (3D graph methodology)
+
+- **3d-force-graph** (WebGL / Three.js) embedded via `st.components.html`: dark canvas, color-coded **nodes** (user → LangGraph agents → Databricks services → product UI + referral) and **links** (fan-out, synthesis, observability). Drag nodes, scroll zoom, hover labels; **auto-rotate** when supported. Static **topology** illustration (not a live Neo4j query).
 
 ## Deployment
 

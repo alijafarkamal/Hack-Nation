@@ -1,7 +1,7 @@
 # ruff: noqa: E501
 """CareCompass India — Streamlit frontend (FastAPI only, no Databricks in browser).
 
-Surfaces: Triage & Matching · Mission Planner · Desert Map · Query Analytics
+Surfaces: Triage & Matching · Mission Planner · Desert Map · Query Analytics · System Architecture
 Challenge: Serving A Nation — Hack-Nation × Databricks 2026
 """
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import os
 import re
 import sys
@@ -25,6 +26,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_folium import st_folium
 
 import api_client
@@ -90,13 +92,13 @@ _VERDICT_STYLES: dict[str, tuple[str, str, str]] = {
 }
 
 _AGENT_STEPS = [
-    ("Supervisor", "Query normalization and intent classification"),
-    ("SQL / Genie", "Structured data queries across 10k facility records"),
-    ("Vector Search", "Semantic retrieval from unstructured facility notes"),
-    ("IDP Extraction", "Intelligent Document Parsing of free-form text"),
-    ("Trust Scorer", "Two-pass verification: Extractor + Validator + deterministic rules"),
-    ("Geospatial", "Medical desert detection and coverage analysis"),
-    ("Synthesis", "Multi-source fusion with confidence scoring"),
+    ("Supervisor", "Query normalization and multi-intent routing (LangGraph entry)"),
+    ("SQL / Genie", "Structured Databricks Genie SQL across ~10k facility records"),
+    ("Vector Search", "Semantic retrieval via Databricks Vector Search on unstructured notes"),
+    ("IDP Extraction", "Intelligent document parsing of free-form facility text"),
+    ("Trust Scorer (Multi-Agent Debate)", "Extractor vs Validator: two-pass LLM + rules (truth gap)"),
+    ("Geospatial", "Medical desert and coverage analysis with policy stats"),
+    ("Synthesis (Agentic Self-Correction)", "Multi-source fusion, confidence, and final narrative"),
 ]
 
 
@@ -899,7 +901,10 @@ def _render_trust_report(trust_artifacts: dict[str, Any] | None) -> None:
     suspicious = summary.get("suspicious", 0)
     review = summary.get("review", 0)
     verified = n - suspicious - review
-    st.markdown('<div class="section-card"><h4>Trust Scorer — Verification Report</h4>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-card"><h4>Multi-Agent Truth Verification (Extractor vs Validator)</h4>',
+        unsafe_allow_html=True,
+    )
     vc1, vc2, vc3 = st.columns(3)
     vc1.markdown(f'<div class="metric-box"><p class="num" style="color:#059669">{verified}</p><p class="label">Verified</p></div>', unsafe_allow_html=True)
     vc2.markdown(f'<div class="metric-box"><p class="num" style="color:#d97706">{review}</p><p class="label">Needs Review</p></div>', unsafe_allow_html=True)
@@ -984,7 +989,7 @@ def _render_full_trust_report(mr: dict[str, Any], ts: dict[str, Any] | None = No
 <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);color:#fff;
 padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
   <h4 style="margin:0;color:#fff;font-size:1rem;">
-    Trust Scorer — Facility Verification Report
+    Multi-Agent Truth Verification (Extractor vs Validator Debate)
   </h4>
   <p style="margin:0.2rem 0 0 0;font-size:0.78rem;color:#bfdbfe;">
     Two-pass LLM pipeline (Extractor → Validator) + deterministic medical consistency rules.
@@ -1107,6 +1112,58 @@ padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
     st.markdown('</div>', unsafe_allow_html=True)
 
 
+def _build_agent_trace_lines(mr: dict[str, Any]) -> list[str]:
+    """Chronological trace lines for the View Agent Logic expander (from match artifacts)."""
+    syn = mr.get("synthesis_artifacts") or {}
+    trust = mr.get("trust_artifacts") or {}
+    per_fac = trust.get("per_facility") or []
+    summary = trust.get("summary") or {}
+    conf = syn.get("confidence_0_1")
+    agents = syn.get("agents_merged") or []
+    ag_disp = ", ".join(_humanize(str(a)) for a in agents) if agents else "LangGraph + synthesis (defaults)"
+
+    lines: list[str] = [f"**Step 1:** Supervisor route / merged sources: **{ag_disp}**."]
+    n_flags = 0
+    n_dis = 0
+    for f in per_fac:
+        n_flags += len(f.get("all_flags") or [])
+        n_dis += len(f.get("disagreements") or [])
+    if conf is not None:
+        try:
+            cv = float(conf)
+            lines.append(f"**Step 2:** Synthesis confidence: **{round(cv * 100)}%** (calibrated 0–1 from structured blend).")
+        except (TypeError, ValueError):
+            lines.append("**Step 2:** Synthesis completed; see structured artifacts for detail.")
+    else:
+        lines.append("**Step 2:** Synthesis step completed (confidence not in payload).")
+    if per_fac:
+        lines.append(f"**Step 3:** Trust Scorer (Extractor → Validator) evaluated **{len(per_fac)}** facilities.")
+        lines.append(
+            f"**Step 4:** Cross-check: **{n_flags}** flag(s), **{n_dis}** extractor/validator note(s) over the batch."
+        )
+        n = summary.get("n", len(per_fac))
+        sus = int(summary.get("suspicious") or 0)
+        rev = int(summary.get("review") or 0)
+        ver = n - sus - rev
+        lines.append(
+            f"**Step 5:** Verdict mix — **{ver}** verified, **{rev}** needs review, **{sus}** suspicious (batch)."
+        )
+    else:
+        lines.append("**Step 3:** No per-facility trust artifacts in this response.")
+    cid = (syn.get("correlation_id") or mr.get("correlation_id") or "").strip()
+    if cid:
+        lines.append(f"**Step 6:** Trace / MLflow correlation id: `{cid[:20]}…`")
+    lines.append("**Step 7:** **Final UI:** Triage + facility cards, referral, and policy tabs remain your operational surfaces.")
+    return lines
+
+
+def _render_agent_trace_log(mr: dict[str, Any]) -> None:
+    with st.expander("View Agent Logic", expanded=False):
+        st.caption("Chronological log derived from this match’s synthesis + trust JSON (not a full MLflow span tree).")
+        for line in _build_agent_trace_lines(mr):
+            st.markdown(line)
+
+
 def _render_thought_process(mr: dict[str, Any]) -> None:
     syn = mr.get("synthesis_artifacts") or {}
     trust = mr.get("trust_artifacts") or {}
@@ -1115,6 +1172,7 @@ def _render_thought_process(mr: dict[str, Any]) -> None:
     dqn = syn.get("data_quality_notes", "")
     st.markdown('<div class="section-card"><h4>Agent Thought Process — Chain of Reasoning</h4>', unsafe_allow_html=True)
     _render_agent_pipeline(agents)
+    _render_agent_trace_log(mr)
     if agents:
         st.markdown(f"**Sources merged:** {', '.join([_humanize(a) for a in agents])}")
     if conf is not None:
@@ -1413,6 +1471,119 @@ def _service_status() -> None:
                 st.error(f"Readiness check failed: {_safe_str(e)}")
 
 
+def _build_architecture_graph() -> dict[str, list]:
+    """Static nodes/links representing CareCompass: LangGraph, Databricks, and UI."""
+    _nodes: list[dict[str, Any]] = [
+        {"id": "user", "name": "User query", "color": "#fb923c", "val": 6},
+        {"id": "super", "name": "Supervisor (LangGraph)", "color": "#22d3ee", "val": 5},
+        {"id": "sql", "name": "SQL / Genie agent", "color": "#06b6d4", "val": 4},
+        {"id": "vec", "name": "RAG / Vector Search", "color": "#06b6d4", "val": 4},
+        {"id": "idp", "name": "IDP extraction", "color": "#06b6d4", "val": 4},
+        {"id": "trust", "name": "Trust Scorer (Extractor vs Validator)", "color": "#06b6d4", "val": 4},
+        {"id": "geo", "name": "Geospatial agent", "color": "#06b6d4", "val": 4},
+        {"id": "synth", "name": "Synthesis", "color": "#38bdf8", "val": 5},
+        {"id": "genie", "name": "Databricks Genie", "color": "#fbbf24", "val": 3},
+        {"id": "vidx", "name": "Vector Search index", "color": "#fbbf24", "val": 3},
+        {"id": "mserve", "name": "Model serving", "color": "#fbbf24", "val": 3},
+        {"id": "ucat", "name": "Unity Catalog", "color": "#fbbf24", "val": 3},
+        {"id": "mflow", "name": "MLflow 3 tracing", "color": "#f59e0b", "val": 3},
+        {"id": "triage", "name": "Triage & matching", "color": "#4ade80", "val": 3},
+        {"id": "dmap", "name": "Desert map", "color": "#4ade80", "val": 3},
+        {"id": "plan", "name": "Mission planner", "color": "#4ade80", "val": 3},
+        {"id": "ref", "name": "Referral / SMS", "color": "#a78bfa", "val": 3},
+    ]
+    _links: list[dict[str, str]] = [
+        {"source": "user", "target": "super"},
+        {"source": "super", "target": "sql"},
+        {"source": "super", "target": "vec"},
+        {"source": "super", "target": "idp"},
+        {"source": "super", "target": "trust"},
+        {"source": "super", "target": "geo"},
+        {"source": "sql", "target": "synth"},
+        {"source": "vec", "target": "synth"},
+        {"source": "idp", "target": "synth"},
+        {"source": "trust", "target": "synth"},
+        {"source": "geo", "target": "synth"},
+        {"source": "sql", "target": "genie"},
+        {"source": "vec", "target": "vidx"},
+        {"source": "trust", "target": "mserve"},
+        {"source": "geo", "target": "ucat"},
+        {"source": "synth", "target": "mflow"},
+        {"source": "synth", "target": "triage"},
+        {"source": "synth", "target": "dmap"},
+        {"source": "synth", "target": "plan"},
+        {"source": "triage", "target": "ref"},
+    ]
+    return {"nodes": _nodes, "links": _links}
+
+
+def _tab_architecture() -> None:
+    """3D WebGL system-architecture graph (3d-force-graph) — demo ’under the hood’ view."""
+    st.markdown("### System Architecture — 3D Graph Methodology")
+    st.caption(
+        "Interactive 3D mesh: LangGraph agent fan-out, Databricks services, and Streamlit outputs. "
+        "Drag nodes · scroll to zoom · hover for labels. (Illustrative topology — not a live Neo4j query.)"
+    )
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Agent nodes", "7")
+    c2.metric("Databricks services", "5")
+    c3.metric("UI surfaces", "4")
+    c4.metric("Graph edges", "20")
+    c5.metric("Observability", "MLflow 3")
+    st.markdown(
+        """
+<div style="font-size:0.8rem;color:#64748b;padding:0.25rem 0 0.5rem 0;">
+<span style="color:#fb923c">■</span> User
+&nbsp; <span style="color:#22d3ee">■</span> LangGraph agents
+&nbsp; <span style="color:#fbbf24">■</span> Databricks
+&nbsp; <span style="color:#4ade80">■</span> Product UI
+&nbsp; <span style="color:#a78bfa">■</span> Actions
+</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    gdata = _build_architecture_graph()
+    data_json = json.dumps(gdata)
+    # 3d-force-graph UMD: ForceGraph3D on window (unpkg)
+    html = f"""
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"/>
+<style>html,body{{margin:0;padding:0;overflow:hidden;background:#0a0a0a;}}</style>
+</head>
+<body>
+<div id="g3d" style="width:100%;height:620px;background:#0a0a0a;"></div>
+<script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.73.3/dist/3d-force-graph.min.js"></script>
+<script>
+(function() {{
+  const data = {data_json};
+  const el = document.getElementById('g3d');
+  if (typeof ForceGraph3D === 'undefined') {{ el.textContent = '3D graph library failed to load.'; return; }}
+  const G = new ForceGraph3D(el)
+    .graphData(data)
+    .backgroundColor('#0a0a0a')
+    .nodeLabel('name')
+    .nodeVal('val')
+    .nodeColor(function(n) {{ return n.color || '#94a3b8'; }})
+    .linkWidth(0.4)
+    .linkOpacity(0.45)
+    .linkColor(function() {{ return 'rgba(148,163,184,0.5)'; }})
+    .linkDirectionalParticles(1)
+    .linkDirectionalParticleSpeed(0.006)
+    .showNavInfo(false)
+    .enableNodeDrag(true);
+  setTimeout(function() {{
+    try {{
+      var c = G.controls();
+      if (c && c.autoRotate !== undefined) {{ c.autoRotate = true; c.autoRotateSpeed = 0.35; }}
+    }} catch (e) {{}}
+  }}, 200);
+}})();
+</script>
+</body></html>
+"""
+    components.html(html, height=640, scrolling=False)
+
+
 # ── Tab 1: Triage & Matching ────────────────────────────────────────────────
 
 def _tab_triage() -> None:
@@ -1424,6 +1595,17 @@ def _tab_triage() -> None:
         if key not in st.session_state:
             st.session_state[key] = default
 
+    with st.expander("Why CareCompass is agentic (technical architecture)", expanded=False):
+        st.markdown(
+            """
+- **Multi-agent orchestration** — LangGraph supervisor, parallel specialist nodes, fusion synthesis
+- **MLflow 3 observability** — Traced API/graph runs; correlation id surfaced after each match
+- **Wilson confidence scoring** — Medical desert and PIN risk use prediction-style intervals
+- **Two-pass truth verification** — Extractor vs validator + rules (addressing the “truth gap”)
+- **Medical desert & policy analytics** — Coverage heatmaps, mission planner, public-health query log
+            """.strip()
+        )
+
     st.sidebar.markdown("### Try a Query")
     for i, q in enumerate(EXAMPLE_QUERIES):
         if st.sidebar.button(q, key=f"ex_{i}"):
@@ -1432,7 +1614,10 @@ def _tab_triage() -> None:
 
     # ── Combined input: symptoms + region in one form ──────────────────────
     st.markdown('<div class="section-card"><h4>Symptom Triage + Facility Matching</h4>', unsafe_allow_html=True)
-    st.caption("Enter symptoms and region below. One click runs the full pipeline: triage analysis → facility matching → Trust Scorer.")
+    st.caption(
+        "Enter symptoms and region below. One click runs the full pipeline: triage analysis → facility matching → "
+        "multi-agent truth verification."
+    )
     sym_col, reg_col = st.columns([3, 1])
     with sym_col:
         symptoms = st.text_area(
@@ -1662,8 +1847,14 @@ def _tab_planner() -> None:
 
         wiv = rep.get("desert_pin_ratio_interval")
         if isinstance(wiv, dict):
-            st.markdown('<div class="section-card"><h4>Statistical Confidence — Wilson Score Interval</h4>', unsafe_allow_html=True)
-            st.caption("Binomial confidence interval accounting for finite sample size.")
+            st.markdown(
+                '<div class="section-card"><h4>Statistical Confidence — Wilson Score (Confidence / Prediction Interval)</h4>',
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                "Binomial **confidence interval** (Wilson) for the true desert proportion; interpret as statistical uncertainty, "
+                "not clinical effect size — ideal for sparsity / sample-size story."
+            )
             fig = _wilson_gauge(wiv, title=f"Desert proportion for {use_spec.title()} ({level.upper()} level)")
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
@@ -1688,7 +1879,10 @@ def _tab_planner() -> None:
         trust_arts = (st.session_state.get("match_result") or {}).get("trust_artifacts") or {}
         flagged = [f for f in (trust_arts.get("per_facility") or []) if f.get("final_verdict") in ("SUSPICIOUS", "REVIEW")]
         if flagged:
-            st.markdown('<div class="section-card"><h4>Flagged Facilities (from Trust Scorer)</h4>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="section-card"><h4>Flagged Facilities (from multi-agent truth verification)</h4>',
+                unsafe_allow_html=True,
+            )
             flagged_rows = []
             for f in flagged[:20]:
                 flagged_rows.append({
@@ -2083,7 +2277,9 @@ def main() -> None:
 </div>""", unsafe_allow_html=True)
 
     _service_status()
-    t_chat, t_plan, t_map, t_analytics = st.tabs(["Triage & Matching", "Mission Planner", "Desert Map", "Query Analytics"])
+    t_chat, t_plan, t_map, t_analytics, t_arch = st.tabs(
+        ["Triage & Matching", "Mission Planner", "Desert Map", "Query Analytics", "System Architecture"]
+    )
     with t_chat:
         _tab_triage()
     with t_plan:
@@ -2092,6 +2288,8 @@ def main() -> None:
         _tab_map()
     with t_analytics:
         _tab_analytics()
+    with t_arch:
+        _tab_architecture()
 
 
 if __name__ == "__main__":
