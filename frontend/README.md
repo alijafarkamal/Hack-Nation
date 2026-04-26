@@ -100,9 +100,8 @@ For facilities with missing data (phone, hours, website), the enrichment agent:
 
 ## System Architecture tab (graph methodology)
 
-- **streamlit-agraph** (vis.js) — interactive **2D** force-directed graph: drag nodes, zoom, dark background, colored nodes by role. Renders in canvas/SVG (no WebGL in the **browser**), so it works when Plotly 3D / WebGL is blocked.
-- If `streamlit-agraph` is not installed, a **text + Mermaid** fallback lists nodes and links.
-- Static **topology** illustration (not a live **Neo4j** database; Neo4j is for storing live graph *data*—here we only need a one-shot diagram of the app architecture).
+- **Order of rendering:** (1) **streamlit-agraph** if installed; (2) else **vis-network** via `st.components.html` and jsDelivr (same topology, 2D canvas, no extra Python package on the host); (3) else **text + Mermaid** list.
+- Static **topology** only (not a live **Neo4j** instance).
 
 ## Deployment
 

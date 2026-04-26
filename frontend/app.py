@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import os
 import re
 import sys
@@ -25,6 +26,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_folium import st_folium
 
 try:
@@ -1527,7 +1529,7 @@ def _build_architecture_graph() -> dict[str, list]:
 
 
 def _render_architecture_agraph(gdata: dict[str, Any]) -> bool:
-    """Interactive graph via streamlit-agraph (vis.js, 2D canvas—no WebGL in browser for Plotly-3D). Returns True on success."""
+    """Interactive graph via streamlit-agraph (vis.js) when the package is installed and the component accepts our config."""
     if not _AGRAPH_AVAILABLE or agraph is None or Config is None or Node is None or Edge is None:
         return False
     try:
@@ -1551,34 +1553,78 @@ def _render_architecture_agraph(gdata: dict[str, Any]) -> bool:
         for l in gdata.get("links") or []:
             s, t = l.get("source", ""), l.get("target", "")
             if s and t:
-                ar_edges.append(Edge(source=str(s), target=str(t), color="#94a3b8", width=1.2))
-        cfg = Config(
-            width=1000,
-            height=620,
-            directed=True,
-            physics=True,
-            hierarchical=False,
-            # Pass-through to vis-network (Config merges into JSON for the custom component)
-            background={"color": "#0a0a0a"},
-            nodes={
-                "font": {"color": "#e2e8f0", "size": 11, "face": "arial"},
-                "borderWidth": 0,
-                "shadow": {"enabled": True, "color": "rgba(0,0,0,0.4)", "size": 6},
-            },
-            edges={
-                "arrows": {"to": {"enabled": True, "scaleFactor": 0.4}},
-                "color": {"color": "rgba(148,163,184,0.7)"},
-                "smooth": {"type": "continuous", "roundness": 0.2},
-            },
-        )
+                ar_edges.append(Edge(source=str(s), target=str(t), color="#94a3b8"))
+        # Minimal config — avoid extra vis keys that break json / older agraph frontends
+        cfg = Config(height=620, width=1000, directed=True, physics=True, hierarchical=False)
         agraph(ar_nodes, ar_edges, config=cfg, key="cc_system_arch_agraph")
         return True
     except Exception:  # pragma: no cover
         return False
 
 
+def _build_vis_network_payload(gdata: dict[str, Any]) -> str:
+    """JSON string for vis-network (nodes/edges with string ids)."""
+    nodes_out: list[dict[str, Any]] = []
+    for n in gdata.get("nodes") or []:
+        nid = str(n.get("id", ""))
+        lab = str(n.get("name", nid))[:48]
+        c = n.get("color", "#94a3b8")
+        nodes_out.append(
+            {
+                "id": nid,
+                "label": lab,
+                "title": str(n.get("name", "")),
+                "color": {"background": c, "border": "rgba(255,255,255,0.25)", "highlight": {"background": c, "border": "#fff"}},
+                "font": {"color": "#e2e8f0", "size": 12},
+            }
+        )
+    edges_out: list[dict[str, Any]] = []
+    for l in gdata.get("links") or []:
+        s, t = l.get("source", ""), l.get("target", "")
+        if s and t:
+            edges_out.append({"from": str(s), "to": str(t), "arrows": "to", "color": {"color": "rgba(148,163,184,0.8)"}, "smooth": {"type": "continuous", "roundness": 0.2}})
+    return json.dumps({"nodes": nodes_out, "edges": edges_out})
+
+
+def _render_architecture_vis_network_html(gdata: dict[str, Any]) -> bool:
+    """Self-contained vis-network 2D graph via CDN (no streamlit-agraph). Returns False if embed fails."""
+    try:
+        payload = _build_vis_network_payload(gdata)
+    except (TypeError, ValueError, KeyError):
+        return False
+    html = f"""
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><style>html,body{{margin:0;padding:0;overflow:hidden;}}</style></head>
+<body>
+<div id="cc_vis_net" style="width:100%;height:600px;background:#0a0a0a;border-radius:6px;"></div>
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script>
+(function() {{
+  const raw = {payload};
+  const nodes = new vis.DataSet(raw.nodes);
+  const edges = new vis.DataSet(raw.edges);
+  const container = document.getElementById("cc_vis_net");
+  const data = {{ nodes: nodes, edges: edges }};
+  const options = {{
+    physics: {{ enabled: true, stabilization: {{ iterations: 80 }} }},
+    layout: {{ improvedLayout: true }},
+    interaction: {{ hover: true, navigationButtons: true, keyboard: true }},
+    edges: {{ width: 1.2 }},
+  }};
+  new vis.Network(container, data, options);
+}})();
+</script>
+</body></html>
+"""
+    try:
+        components.html(html, height=620, scrolling=False)
+        return True
+    except Exception:  # pragma: no cover
+        return False
+
+
 def _architecture_graph_text_fallback(gdata: dict[str, Any]) -> None:
-    st.warning("Could not load the **streamlit-agraph** graph. Add `streamlit-agraph` to your environment, or use the list below.")
+    st.warning("Could not render the interactive graph (iframe blocked or script error). **Topology** is listed below.")
     nlines = [f"- **{n.get('id', '')}** — {n.get('name', '')}" for n in (gdata.get("nodes") or [])]
     elines = [f"- `{e.get('source', '')}` → `{e.get('target', '')}`" for e in (gdata.get("links") or [])]
     st.markdown("**Nodes**\n" + "\n".join(nlines))
@@ -1593,7 +1639,7 @@ def _tab_architecture() -> None:
     st.markdown("### System Architecture — Graph Methodology")
     st.caption(
         "LangGraph fan-out, Databricks services, and product surfaces. "
-        "Interactive 2D graph (vis.js via streamlit-agraph) — no WebGL requirement like Plotly 3D. "
+        "Interactive 2D graph (vis.js): streamlit-agraph when installed, otherwise embedded vis-network. "
         "Illustrative static topology, not a live Neo4j / graph database."
     )
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -1615,9 +1661,13 @@ def _tab_architecture() -> None:
         unsafe_allow_html=True,
     )
     gdata = _build_architecture_graph()
-    ok = _render_architecture_agraph(gdata)
-    if ok:
-        st.caption("Drag nodes, scroll to zoom, hover for full labels. Physics stabilizes the layout on load.")
+    if _render_architecture_agraph(gdata):
+        st.caption("Drag nodes, scroll to zoom, hover for full labels. (streamlit-agraph / vis.js)")
+    elif _render_architecture_vis_network_html(gdata):
+        st.caption(
+            "Interactive graph (vis-network, 2D canvas). Drag, zoom, navigation buttons. "
+            "Renders even if the **streamlit-agraph** package is missing from the host."
+        )
     else:
         _architecture_graph_text_fallback(gdata)
 
