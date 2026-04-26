@@ -2450,6 +2450,18 @@ def _tab_analytics() -> None:
     st.markdown('<div class="section-card"><h4>Public Health Query Analytics</h4>', unsafe_allow_html=True)
     st.caption("Session-scoped log of triage queries for public health surveillance.")
     st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+Every triage query you run on the **Triage & Matching** tab is silently logged here as a structured record —
+capturing the symptoms described, the clinical capabilities the agent inferred, and the geographic region of interest.
+
+Over a live session this becomes a **demand-side signal**: which specialties are being searched most, which states
+appear repeatedly, and where capability gaps are felt in real time. NGO planners can export this log as CSV or PDF
+to brief policymakers — turning user queries into an evidence-based resource allocation report.
+
+> **To populate this view:** run any triage query on the first tab, then return here.
+        """.strip()
+    )
     log = st.session_state.get("query_log") or []
     if not log:
         st.info("No queries logged yet. Run a triage analysis to start.")
