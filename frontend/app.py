@@ -26,7 +26,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 import api_client
-from map_component import create_india_map, desert_states_from_names
+from map_component import covered_states_from_names, create_india_map, desert_states_from_names
 from state_centroids import INDIA_STATE_CENTROIDS
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -310,11 +310,65 @@ def _extract_facility_names_from_mr(mr: dict[str, Any]) -> list[str]:
             seen.add(n)
     for hit in (mr.get("search_result") or [])[:15]:
         if isinstance(hit, dict):
-            n = hit.get("name", "")
+            n = hit.get("name", "") or hit.get("facility_name", "")
+            if n and n not in seen:
+                names.append(n)
+                seen.add(n)
+    for row in (mr.get("extraction_result") or {}).get("facilities") or []:
+        if isinstance(row, dict):
+            n = row.get("name", "") or row.get("facility", "")
             if n and n not in seen:
                 names.append(n)
                 seen.add(n)
     return names
+
+
+def _build_facility_meta_index(mr: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Build a name→metadata map from all available sources in the match result."""
+    index: dict[str, dict[str, Any]] = {}
+
+    def _update(name: str, data: dict[str, Any]) -> None:
+        if not name:
+            return
+        if name not in index:
+            index[name] = {}
+        for k, v in data.items():
+            if v and v not in ("—", "null", "None", None) and k not in index[name]:
+                index[name][k] = v
+
+    for row in (mr.get("synthesis_artifacts") or {}).get("evidence_table") or []:
+        if not isinstance(row, dict):
+            continue
+        name = row.get("facility", "")
+        _update(name, {
+            "state": row.get("state") or row.get("state_normalized"),
+            "pin": row.get("pin_or_city") or row.get("pin_code") or row.get("pin"),
+            "type": row.get("facilityTypeId") or row.get("facility_type") or row.get("type"),
+            "notes": row.get("notes", ""),
+        })
+
+    for hit in (mr.get("search_result") or [])[:20]:
+        if not isinstance(hit, dict):
+            continue
+        name = hit.get("name", "") or hit.get("facility_name", "")
+        _update(name, {
+            "state": hit.get("state_normalized") or hit.get("state"),
+            "pin": hit.get("pin_code") or hit.get("pin"),
+            "type": hit.get("facilityTypeId") or hit.get("facility_type"),
+            "notes": hit.get("evidence_snippet") or hit.get("notes", ""),
+        })
+
+    for row in (mr.get("extraction_result") or {}).get("facilities") or []:
+        if not isinstance(row, dict):
+            continue
+        name = row.get("name", "") or row.get("facility", "")
+        _update(name, {
+            "state": row.get("state") or row.get("state_normalized"),
+            "pin": row.get("pin_code") or row.get("pin"),
+            "type": row.get("facilityTypeId") or row.get("facility_type"),
+        })
+
+    return index
 
 
 def _render_agent_output(content: str) -> None:
@@ -518,18 +572,14 @@ def _render_facility_cards(mr: dict[str, Any]) -> None:
     """Render structured facility cards with trust scores and contact info from enrichment cache."""
     trust_arts = mr.get("trust_artifacts") or {}
     per_fac = trust_arts.get("per_facility") or []
-    ev_table = (mr.get("synthesis_artifacts") or {}).get("evidence_table") or []
-    search_hits = mr.get("search_result") or []
     cache = _get_enrichment_cache()
+    meta = _build_facility_meta_index(mr)
 
-    ev_by_name: dict[str, dict] = {}
-    for row in ev_table:
-        if isinstance(row, dict) and row.get("facility"):
-            ev_by_name[row["facility"]] = row
-    hit_by_name: dict[str, dict] = {}
-    for h in search_hits:
-        if isinstance(h, dict) and h.get("name"):
-            hit_by_name[h["name"]] = h
+    # Auto-enrich top 3 silently if not yet enriched
+    fac_names = [f.get("facility", "") for f in per_fac[:3] if f.get("facility")]
+    for name in fac_names:
+        if name and name not in cache:
+            _enrich_facility_cached(name)
 
     facilities_shown: list[dict[str, Any]] = []
     for fac in per_fac[:12]:
@@ -540,16 +590,16 @@ def _render_facility_cards(mr: dict[str, Any]) -> None:
         vcolor, vbg, vtext = _VERDICT_STYLES.get(verdict, ("#64748b", "#f1f5f9", "#334155"))
         pct_trust = round(combined * 100)
 
-        ev = ev_by_name.get(fname) or {}
-        hit = hit_by_name.get(fname) or {}
-        state = ev.get("state") or hit.get("state_normalized") or "—"
-        pin = ev.get("pin_or_city") or hit.get("pin_code") or "—"
-        ftype = ev.get("facilityTypeId") or hit.get("facilityTypeId") or "—"
-        notes = ev.get("notes", "")
+        m = meta.get(fname) or {}
+        state = m.get("state") or "—"
+        pin = m.get("pin") or "—"
+        ftype = m.get("type") or "—"
+        notes = m.get("notes", "")
 
         enr = cache.get(fname) or {}
-        phone = enr.get("phone_estimated", "")
-        website = enr.get("website_estimated", "")
+        phone = enr.get("phone_estimated") or ""
+        website = enr.get("website_estimated") or ""
+        email = enr.get("email_estimated") or ""
         all_phones = enr.get("all_phones") or []
         all_websites = enr.get("all_websites") or []
 
@@ -557,7 +607,7 @@ def _render_facility_cards(mr: dict[str, Any]) -> None:
         c1, c2, c3 = st.columns([4, 2, 2])
         with c1:
             st.markdown(f'<span class="fac-title">{fname}</span>', unsafe_allow_html=True)
-            st.markdown(f'<span class="fac-meta">State: {state} · PIN: {pin} · Type: {_humanize(ftype)}</span>', unsafe_allow_html=True)
+            st.markdown(f'<span class="fac-meta">State: {state} · PIN: {pin} · Type: {_humanize(str(ftype))}</span>', unsafe_allow_html=True)
         with c2:
             st.markdown(
                 f'<div class="trust-bar"><div class="trust-fill" style="width:{pct_trust}%;background:{vcolor};"></div></div>'
@@ -570,37 +620,54 @@ def _render_facility_cards(mr: dict[str, Any]) -> None:
                 f'{"Verified by Medical Standard Agent" if verdict == "VERIFIED" else verdict}</span>',
                 unsafe_allow_html=True,
             )
-        contact_parts = []
+
+        contact_lines = []
         if phone:
-            contact_parts.append(f"Phone: **{phone}**")
-        if website:
-            contact_parts.append(f"Web: [{website[:40]}]({website})")
+            contact_lines.append(f"📞 **{phone}**")
         if len(all_phones) > 1:
-            contact_parts.append(f"Alt phones: {', '.join(all_phones[1:3])}")
+            contact_lines.append(f"Alt: {', '.join(all_phones[1:3])}")
+        if email:
+            contact_lines.append(f"✉ {email}")
+        if website:
+            short = website.replace("https://", "").replace("http://", "")[:45]
+            contact_lines.append(f"🌐 [{short}]({website})")
         if len(all_websites) > 1:
-            contact_parts.append(f"Alt web: {', '.join(all_websites[1:2])}")
-        if contact_parts:
-            st.markdown(f'<span class="fac-contact">{" · ".join(contact_parts)}</span>', unsafe_allow_html=True)
+            w2 = all_websites[1]
+            s2 = w2.replace("https://", "").replace("http://", "")[:40]
+            contact_lines.append(f"🌐 [{s2}]({w2})")
+
+        if contact_lines:
+            for line in contact_lines:
+                st.markdown(f'<span class="fac-contact">{line}</span>', unsafe_allow_html=True)
         elif not enr:
-            st.caption("Contact info: not yet enriched")
+            enrich_col, _ = st.columns([1, 3])
+            with enrich_col:
+                if st.button(f"Search web for contacts", key=f"enrich_single_{fname[:15]}"):
+                    _enrich_facility_cached(fname)
+                    st.rerun()
         else:
-            st.caption("Contact info: not found via web search")
+            st.caption("No contact info found via web search")
+
         if flags:
             st.markdown(" ".join(f'<span class="badge-flag">{_humanize(f)}</span>' for f in flags[:3]), unsafe_allow_html=True)
         if notes:
             st.markdown(f'<span class="fac-evidence">{_clean_markdown(notes[:200])}</span>', unsafe_allow_html=True)
 
-        if st.button(f"Refer {fname[:30]}…", key=f"ref_{fname[:20]}_{pct_trust}"):
+        if st.button(f"Refer this facility", key=f"ref_{fname[:20]}_{pct_trust}"):
             st.session_state.ref_facility_name = fname
             st.session_state.ref_phone = phone or ""
             st.session_state.ref_patient_summary = st.session_state.get("triage_sym_area", "")
             st.toast(f"Referral pre-filled for {fname}")
 
         st.markdown('</div>', unsafe_allow_html=True)
-        facilities_shown.append({"Facility": fname, "State": state, "PIN": pin, "Type": _humanize(ftype), "Trust": f"{pct_trust}%", "Verdict": verdict, "Phone": phone, "Website": website})
+        facilities_shown.append({
+            "Facility": fname, "State": state, "PIN": str(pin), "Type": _humanize(str(ftype)),
+            "Trust %": pct_trust, "Verdict": verdict,
+            "Phone": phone, "Email": email, "Website": website,
+        })
 
     if facilities_shown:
-        with st.expander("Download facility list (CSV)"):
+        with st.expander(f"Download facility list (CSV) — {len(facilities_shown)} facilities"):
             df_fac = pd.DataFrame(facilities_shown)
             st.dataframe(df_fac, use_container_width=True, hide_index=True)
             st.download_button("Download CSV", df_fac.to_csv(index=False).encode("utf-8"), "matched_facilities.csv", "text/csv", key="dl_fac_csv")
@@ -794,25 +861,36 @@ def _tab_triage() -> None:
     if mr:
         st.markdown(f'<p class="disclaimer">{mr.get("safety_disclaimer") or DISCLAIMER_MATCH}</p>', unsafe_allow_html=True)
 
+        # Enrich All at the top — prominent, before Trust Scorer
+        fac_names = _extract_facility_names_from_mr(mr)
+        cache = _get_enrichment_cache()
+        n_enriched = sum(1 for n in fac_names if n in cache)
+        n_total = len(fac_names)
+        if fac_names:
+            enr_banner = st.container()
+            with enr_banner:
+                st.markdown(
+                    f'<div style="background:#fffbeb;border:1px solid #fcd34d;border-left:4px solid #f59e0b;'
+                    f'border-radius:0.5rem;padding:0.6rem 1rem;margin-bottom:0.5rem;font-size:0.85rem;">'
+                    f'<b>Web Contact Enrichment (Tavily)</b> — {n_enriched}/{n_total} facilities enriched. '
+                    f'Click to fetch phone, email, and website for all matched facilities.</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button(f"Enrich All {n_total} Facilities with Web Data", key="btn_enrich_all", type="secondary"):
+                    bar = st.progress(0, text="Enriching…")
+                    for idx, name in enumerate(fac_names[:10]):
+                        _enrich_facility_cached(name)
+                        bar.progress((idx + 1) / min(10, len(fac_names)), text=f"Enriched {idx+1}/{min(10, len(fac_names))}")
+                    bar.empty()
+                    st.rerun()
+
         # 1. Agent pipeline / thought process
         _render_thought_process(mr)
 
         # 2. Trust Scorer — prominent, with full per-facility detail ─────────
         _render_full_trust_report(mr.get("trust_artifacts"))
 
-        # 3. Enrich + Facility Cards
-        fac_names = _extract_facility_names_from_mr(mr)
-        if fac_names:
-            enrich_col, _ = st.columns([2, 3])
-            with enrich_col:
-                if st.button("Enrich All with Web Data (Tavily)", key="btn_enrich_all"):
-                    bar = st.progress(0, text="Enriching…")
-                    for idx, name in enumerate(fac_names[:8]):
-                        _enrich_facility_cached(name)
-                        bar.progress((idx + 1) / min(8, len(fac_names)), text=f"Enriched {idx+1}/{min(8, len(fac_names))}")
-                    bar.empty()
-                    st.rerun()
-
+        # 3. Facility Cards with contact info
         _render_facility_cards(mr)
 
         # 4. Supporting evidence + citations pushed to bottom expanders ────
@@ -1069,57 +1147,104 @@ def _tab_planner() -> None:
 
 def _tab_map() -> None:
     st.markdown(f'<p class="disclaimer">{DISCLAIMER_POLICY}</p>', unsafe_allow_html=True)
-    col1, col2, col3 = st.columns(3)
+
+    st.markdown('<div class="section-card"><h4>Medical Desert Heatmap</h4>', unsafe_allow_html=True)
+    st.caption("Red circles = states with zero specialty coverage (medical desert). Green circles = states with confirmed coverage. Select a specialty and click Load.")
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        spec = st.text_input("Specialty", value="emergency", key="map_spec")
+        spec = st.text_input("Specialty to map", value="emergency", key="map_spec", placeholder="emergency, cardiology, ophthalmology…")
     with col2:
         level = st.radio("Level", ["state", "pin"], horizontal=True, key="map_lev")
     with col3:
         region_q = st.text_input("Filter states", key="map_filt", placeholder="e.g. Bihar")
-    if st.button("Load Desert Overlay", type="primary", key="map_load"):
-        try:
-            st.session_state.map_deserts = api_client.get_policy_deserts(spec.strip(), str(level))
-        except Exception as e:
-            st.error(_safe_str(e))
-            st.session_state.map_deserts = None
+    load_btn = st.button("Load Desert Heatmap", type="primary", key="map_load", use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    if load_btn:
+        with st.spinner(f"Fetching {spec} coverage data…"):
+            try:
+                st.session_state.map_deserts = api_client.get_policy_deserts(spec.strip(), str(level))
+                st.session_state.map_spec_loaded = spec.strip()
+            except Exception as e:
+                st.error(_safe_str(e))
+                st.session_state.map_deserts = None
+
     des = st.session_state.get("map_deserts")
-    d_states: list[str] = []
-    if des and isinstance(des, dict):
-        d_states = _clean_state_list(des.get("desert_states") or [])
+    loaded_spec = st.session_state.get("map_spec_loaded", spec)
+
+    if not des:
+        st.info("Select a specialty above and click **Load Desert Heatmap** to see red/green coverage circles for all Indian states.")
+        fmap = create_india_map(specialty=spec)
+        st_folium(fmap, key="map_empty", width=None, height=500, use_container_width=True)
+        return
+
+    # Build desert and covered state lists
+    d_states: list[str] = _clean_state_list(des.get("desert_states") or [])
+    all_known = set(INDIA_STATE_CENTROIDS.keys())
+    c_states: list[str] = sorted(all_known - set(d_states))
+
     if region_q:
         q = region_q.lower()
         d_states = [s for s in d_states if q in s.lower()]
-    all_state_markers: list[dict[str, Any]] = []
-    for name, coords in INDIA_STATE_CENTROIDS.items():
-        is_desert = name in d_states
-        all_state_markers.append({"name": f"{'DESERT — ' if is_desert else ''}{name}", "lat": coords[0], "lon": coords[1], "state": name, "pin_code": "—", "_is_desert": is_desert})
-    overlay = desert_states_from_names(d_states, specialty=spec)
-    non_desert = [m for m in all_state_markers if not m.get("_is_desert")]
-    fmap = create_india_map(facilities=non_desert, desert_states=overlay, use_clustering=False)
-    st_folium(fmap, width=None, height=680, use_container_width=True)
-    mc1, mc2 = st.columns(2)
-    with mc1:
-        st.markdown(f'<div class="metric-box"><p class="num">{len(d_states)} / {len(INDIA_STATE_CENTROIDS)}</p><p class="label">Desert States</p></div>', unsafe_allow_html=True)
-    with mc2:
-        if des and isinstance(des, dict):
-            st.markdown(f'<div class="metric-box"><p class="num">{len(des.get("desert_pins") or [])}</p><p class="label">Desert PINs</p></div>', unsafe_allow_html=True)
+        c_states = [s for s in c_states if q in s.lower()]
+
+    # Build overlay data
+    desert_overlay = desert_states_from_names(d_states, specialty=loaded_spec)
+    covered_overlay = covered_states_from_names(c_states, specialty=loaded_spec)
+
+    # Map title banner
+    st.markdown(
+        f'<div style="background:#1e3a5f;color:#fff;padding:0.5rem 1rem;border-radius:0.5rem;margin-bottom:0.4rem;font-size:0.88rem;">'
+        f'<b>Specialty:</b> {loaded_spec.title()} &nbsp;·&nbsp; '
+        f'<span style="color:#f87171;font-weight:700;">{len(d_states)} desert states</span> &nbsp;·&nbsp; '
+        f'<span style="color:#4ade80;font-weight:700;">{len(c_states)} covered states</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    fmap = create_india_map(
+        desert_states=desert_overlay,
+        covered_states=covered_overlay,
+        specialty=loaded_spec,
+        use_clustering=False,
+    )
+    # Dynamic key forces re-render when specialty or desert list changes
+    map_key = f"map_{loaded_spec}_{len(d_states)}_{region_q}"
+    st_folium(fmap, key=map_key, width=None, height=680, use_container_width=True)
+
+    # Metrics row
+    mc1, mc2, mc3 = st.columns(3)
+    mc1.markdown(f'<div class="metric-box"><p class="num" style="color:#dc2626">{len(d_states)}</p><p class="label">Desert States</p></div>', unsafe_allow_html=True)
+    mc2.markdown(f'<div class="metric-box"><p class="num" style="color:#059669">{len(c_states)}</p><p class="label">Covered States</p></div>', unsafe_allow_html=True)
+    d_pins = [str(p) for p in (des.get("desert_pins") or []) if p and str(p).strip() not in ("null", "None", "")]
+    mc3.markdown(f'<div class="metric-box"><p class="num">{len(d_pins)}</p><p class="label">Desert PINs</p></div>', unsafe_allow_html=True)
+
     st.markdown("""
-<div style="display:flex;gap:1.2rem;flex-wrap:wrap;align-items:center;font-size:0.82rem;color:#475569;margin:0.6rem 0;padding:0.6rem 0.8rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.6rem;">
-  <span style="font-weight:700;color:#1e293b;">Map Legend:</span>
-  <span><span style="color:#f59e0b;">&#9679;</span> Amber — Medical desert</span>
-  <span><span style="color:#dc2626;">&#9679;</span> Red — Desert state</span>
-  <span><span style="color:#16a34a;">&#9679;</span> Green — Covered state</span>
+<div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center;font-size:0.82rem;
+color:#475569;margin:0.5rem 0;padding:0.6rem 0.8rem;background:#f8fafc;
+border:1px solid #e2e8f0;border-radius:0.6rem;">
+  <span style="font-weight:700;color:#1e293b;">Legend:</span>
+  <span><span style="color:#ef4444;font-size:1.1rem;">●</span> Red circle — Medical desert (zero coverage)</span>
+  <span><span style="color:#22c55e;font-size:1.1rem;">●</span> Green circle — State has coverage</span>
+  <span><span style="color:#dc2626;font-weight:700;">ABR</span> Red badge — desert state</span>
+  <span><span style="color:#16a34a;font-weight:700;">ABR</span> Green badge — covered state</span>
 </div>""", unsafe_allow_html=True)
-    with st.expander("View Desert Lists"):
-        if des and isinstance(des, dict):
-            ds = _clean_state_list(des.get("desert_states") or [])
-            dp = [str(p) for p in (des.get("desert_pins") or []) if p and str(p).strip() not in ("null", "None", "")]
-            if ds:
-                st.markdown(" ".join(f'<span class="badge-desert">{s}</span>' for s in ds[:100]), unsafe_allow_html=True)
-            if dp:
-                st.markdown(" ".join(f'<span class="badge-desert">{p}</span>' for p in dp[:100]), unsafe_allow_html=True)
-    if des and isinstance(des, dict):
-        st.download_button("Download Desert States", data="\n".join(_clean_state_list(des.get("desert_states") or [])), file_name="desert_states.txt")
+
+    col_d, col_c = st.columns(2)
+    with col_d:
+        if d_states:
+            with st.expander(f"Desert States ({len(d_states)})"):
+                st.markdown(" ".join(f'<span class="badge-desert">{s}</span>' for s in d_states), unsafe_allow_html=True)
+    with col_c:
+        if c_states:
+            with st.expander(f"Covered States ({len(c_states)})"):
+                st.markdown(" ".join(f'<span class="badge-covered">{s}</span>' for s in c_states[:60]), unsafe_allow_html=True)
+
+    if d_pins:
+        with st.expander(f"Desert PIN codes ({len(d_pins)})"):
+            st.markdown(" ".join(f'<span class="badge-desert">{p}</span>' for p in d_pins[:100]), unsafe_allow_html=True)
+
+    st.download_button("Download Desert States (TXT)", data="\n".join(d_states), file_name=f"desert_states_{loaded_spec}.txt")
 
 
 # ── Tab 4: Query Analytics ──────────────────────────────────────────────────

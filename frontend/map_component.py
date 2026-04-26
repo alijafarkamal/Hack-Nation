@@ -51,88 +51,86 @@ def _state_marker_html(name: str, is_desert: bool) -> str:
 def create_india_map(
     facilities: list[dict[str, Any]] | None = None,
     desert_states: list[dict[str, Any]] | None = None,
+    covered_states: list[dict[str, Any]] | None = None,
     use_clustering: bool = True,
+    specialty: str = "",
 ) -> folium.Map:
-    """Build Folium map centred on India with facility markers and desert overlay."""
+    """Build Folium map centred on India with heatmap-style desert + coverage overlay.
+
+    When desert_states and/or covered_states are provided this renders a
+    choropleth-style heatmap:
+      - Red filled circles  = medical deserts (zero specialty coverage)
+      - Green filled circles = states with confirmed coverage
+    Facility pin markers are kept on a separate layer.
+    """
     m = folium.Map(
         location=[INDIA_CENTER[0], INDIA_CENTER[1]],
         zoom_start=INDIA_ZOOM,
-        tiles="OpenStreetMap",
+        tiles="CartoDB positron",
     )
 
-    facs = facilities or []
-    with_coords: list[dict[str, Any]] = []
-    for f in facs:
-        lat, lon = f.get("lat"), f.get("lon")
-        if lat is None or lon is None:
-            continue
-        try:
-            with_coords.append({**f, "lat": float(lat), "lon": float(lon)})
-        except (TypeError, ValueError):
-            continue
-
-    covered_group = folium.FeatureGroup(name="States with coverage", show=True)
-    if with_coords:
-        is_state_markers = all(f.get("state") and f.get("pin_code") == "—" for f in with_coords)
-        if is_state_markers:
-            for f in with_coords:
-                is_desert = f.get("_is_desert", False)
-                name = f.get("name", "")
-                icon = folium.DivIcon(
-                    html=_state_marker_html(name, is_desert),
+    # ── Heatmap circles — covered states (green) ──────────────────────────
+    if covered_states:
+        cov_group = folium.FeatureGroup(name="Covered states (has facilities)", show=True)
+        for d in covered_states:
+            lat, lon = d.get("lat"), d.get("lon")
+            if lat is None or lon is None:
+                continue
+            spec = d.get("specialty") or specialty or "—"
+            region = d.get("state") or "—"
+            folium.Circle(
+                location=[float(lat), float(lon)],
+                radius=float(d.get("radius_m") or 120_000),
+                color="#15803d",
+                weight=1,
+                fill=True,
+                fill_color="#22c55e",
+                fill_opacity=0.22,
+                popup=folium.Popup(
+                    f"<b style='color:#15803d;'>✓ Covered</b><br>"
+                    f"<b>State:</b> {region}<br>"
+                    f"<b>Specialty:</b> {spec}<br>"
+                    f"Facilities offering <b>{spec}</b> detected here.",
+                    max_width=260,
+                ),
+                tooltip=f"✓ {region} — has {spec} coverage",
+            ).add_to(cov_group)
+            folium.Marker(
+                location=[float(lat), float(lon)],
+                icon=folium.DivIcon(
+                    html=_state_marker_html(region, is_desert=False),
                     icon_size=(28, 28),
                     icon_anchor=(14, 14),
-                )
-                folium.Marker(
-                    location=[f["lat"], f["lon"]],
-                    popup=folium.Popup(_facility_popup(f), max_width=300),
-                    tooltip=name[:80],
-                    icon=icon,
-                ).add_to(covered_group)
-        elif use_clustering and len(with_coords) > 20:
-            cluster = MarkerCluster(name="Facilities", show=True)
-            for f in with_coords:
-                folium.Marker(
-                    location=[f["lat"], f["lon"]],
-                    popup=folium.Popup(_facility_popup(f), max_width=300),
-                    tooltip=str(f.get("name", ""))[:80],
-                    icon=folium.Icon(color="green", icon="plus-sign"),
-                ).add_to(cluster)
-            cluster.add_to(covered_group)
-        else:
-            for f in with_coords:
-                folium.Marker(
-                    location=[f["lat"], f["lon"]],
-                    popup=folium.Popup(_facility_popup(f), max_width=300),
-                    tooltip=str(f.get("name", ""))[:80],
-                    icon=folium.Icon(color="green", icon="plus-sign"),
-                ).add_to(covered_group)
-    covered_group.add_to(m)
+                ),
+                tooltip=f"✓ {region}",
+            ).add_to(cov_group)
+        cov_group.add_to(m)
 
+    # ── Heatmap circles — desert states (red) ────────────────────────────
     if desert_states:
-        desert_group = folium.FeatureGroup(name="Medical deserts (no coverage)", show=True)
+        desert_group = folium.FeatureGroup(name="Medical deserts — zero coverage", show=True)
         for d in desert_states:
             lat, lon = d.get("lat"), d.get("lon")
             if lat is None or lon is None:
                 continue
-            radius_m = float(d.get("radius_m") or 55_000)
-            spec = d.get("specialty") or "—"
+            spec = d.get("specialty") or specialty or "—"
             region = d.get("state") or "—"
             folium.Circle(
                 location=[float(lat), float(lon)],
-                radius=radius_m,
-                color="#d97706",
-                weight=2,
+                radius=float(d.get("radius_m") or 130_000),
+                color="#991b1b",
+                weight=1.5,
                 fill=True,
-                fill_color="#f59e0b",
-                fill_opacity=0.15,
+                fill_color="#ef4444",
+                fill_opacity=0.30,
                 popup=folium.Popup(
-                    f"<b>⚠ Medical Desert</b><br><b>State:</b> {region}<br>"
+                    f"<b style='color:#dc2626;'>⚠ Medical Desert</b><br>"
+                    f"<b>State:</b> {region}<br>"
                     f"<b>Specialty:</b> {spec}<br>"
-                    f"No facilities offering <b>{spec}</b> detected in this region.",
+                    f"<b>Zero facilities</b> offering <b>{spec}</b> detected in this region.",
                     max_width=280,
                 ),
-                tooltip=f"Desert: {region} ({spec})",
+                tooltip=f"⚠ Desert: {region} — no {spec}",
             ).add_to(desert_group)
             folium.Marker(
                 location=[float(lat), float(lon)],
@@ -145,6 +143,40 @@ def create_india_map(
             ).add_to(desert_group)
         desert_group.add_to(m)
 
+    # ── Facility pin markers (when specific facilities are passed) ────────
+    facs = [f for f in (facilities or []) if not f.get("_is_desert") and f.get("pin_code") != "—"]
+    with_coords: list[dict[str, Any]] = []
+    for f in facs:
+        lat, lon = f.get("lat"), f.get("lon")
+        if lat is None or lon is None:
+            continue
+        try:
+            with_coords.append({**f, "lat": float(lat), "lon": float(lon)})
+        except (TypeError, ValueError):
+            continue
+
+    if with_coords:
+        fac_group = folium.FeatureGroup(name="Matched facilities", show=True)
+        if use_clustering and len(with_coords) > 10:
+            cluster = MarkerCluster(name="Facilities", show=True)
+            for f in with_coords:
+                folium.Marker(
+                    location=[f["lat"], f["lon"]],
+                    popup=folium.Popup(_facility_popup(f), max_width=300),
+                    tooltip=str(f.get("name", ""))[:80],
+                    icon=folium.Icon(color="blue", icon="plus-sign"),
+                ).add_to(cluster)
+            cluster.add_to(fac_group)
+        else:
+            for f in with_coords:
+                folium.Marker(
+                    location=[f["lat"], f["lon"]],
+                    popup=folium.Popup(_facility_popup(f), max_width=300),
+                    tooltip=str(f.get("name", ""))[:80],
+                    icon=folium.Icon(color="blue", icon="plus-sign"),
+                ).add_to(fac_group)
+        fac_group.add_to(m)
+
     folium.LayerControl(collapsed=False).add_to(m)
     return m
 
@@ -152,7 +184,24 @@ def create_india_map(
 def desert_states_from_names(
     names: list[str],
     specialty: str,
-    radius_m: int = 55_000,
+    radius_m: int = 130_000,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for name in names or []:
+        c = INDIA_STATE_CENTROIDS.get(name)
+        if not c:
+            continue
+        out.append({
+            "state": name, "lat": c[0], "lon": c[1],
+            "specialty": specialty, "radius_m": radius_m,
+        })
+    return out
+
+
+def covered_states_from_names(
+    names: list[str],
+    specialty: str,
+    radius_m: int = 120_000,
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for name in names or []:
