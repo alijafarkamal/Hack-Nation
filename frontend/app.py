@@ -279,34 +279,68 @@ def inject_css() -> None:
     background: #166534 !important;
   }
 
-  /* Main app tabs: boxed, distinct, hover (role=tab pattern) */
+  /* Main app tabs — one accent color per surface (triage, planner, map, analytics, arch, intel) */
   [data-testid="stTabs"] [role="tablist"] {
-    gap: 0.35rem !important;
+    gap: 0.4rem !important;
     flex-wrap: wrap !important;
-    padding: 0.25rem 0 0.5rem 0 !important;
-    background: linear-gradient(180deg, #f8fafc 0%, #fff 100%) !important;
-    border-radius: 0.5rem 0.5rem 0 0 !important;
+    padding: 0.5rem 0.3rem 0.55rem 0.3rem !important;
+    background: linear-gradient(135deg, #eef2f7 0%, #f8fafc 100%) !important;
+    border-radius: 0.6rem 0.6rem 0 0 !important;
+    border: 1px solid #e2e8f0;
   }
   [data-testid="stTabs"] [role="tablist"] [role="tab"] {
-    border: 1.5px solid #cbd5e1 !important;
     border-radius: 0.5rem !important;
-    padding: 0.5rem 1rem !important;
-    margin: 0 0.2rem 0.35rem 0 !important;
-    background: #f1f5f9 !important;
-    color: #334155 !important;
+    padding: 0.5rem 0.9rem !important;
+    margin: 0 0.1rem 0.3rem 0 !important;
     font-weight: 600 !important;
-    transition: background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    font-size: 0.86rem !important;
+    border: 2px solid transparent !important;
+    transition: transform 0.15s, box-shadow 0.2s, background 0.2s, color 0.2s, border-color 0.2s;
   }
-  [data-testid="stTabs"] [role="tablist"] [role="tab"][aria-selected="true"] {
-    background: #ffffff !important;
-    color: #1e3a5f !important;
-    border-color: #FF9933 !important;
-    box-shadow: 0 2px 8px rgba(30, 58, 95, 0.1) !important;
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:hover:not([aria-selected="true"]) {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08) !important;
   }
-  [data-testid="stTabs"] [role="tablist"] [role="tab"]:hover {
-    background: #fff7ed !important;
-    border-color: #fdba74 !important;
-  }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(1) { background: #fff1f2; color: #9f1239; border-color: #fecdd3; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(1):hover:not([aria-selected="true"]) { background: #fecdd3; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(1)[aria-selected="true"] { background: linear-gradient(180deg, #e11d48, #be123c); color: #fff; border-color: #881337; box-shadow: 0 2px 10px rgba(225,29,72,0.35); }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(2) { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(2):hover:not([aria-selected="true"]) { background: #a7f3d0; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(2)[aria-selected="true"] { background: linear-gradient(180deg, #059669, #047857); color: #fff; border-color: #065f46; box-shadow: 0 2px 10px rgba(5,150,105,0.35); }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(3) { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(3):hover:not([aria-selected="true"]) { background: #fde68a; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(3)[aria-selected="true"] { background: linear-gradient(180deg, #ea580c, #c2410c); color: #fff; border-color: #9a3412; box-shadow: 0 2px 10px rgba(234,88,12,0.35); }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(4) { background: #f3e8ff; color: #6b21a8; border-color: #d8b4fe; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(4):hover:not([aria-selected="true"]) { background: #e9d5ff; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(4)[aria-selected="true"] { background: linear-gradient(180deg, #7c3aed, #6d28d9); color: #fff; border-color: #4c1d95; box-shadow: 0 2px 10px rgba(124,58,237,0.35); }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(5) { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(5):hover:not([aria-selected="true"]) { background: #bae6fd; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(5)[aria-selected="true"] { background: linear-gradient(180deg, #0284c7, #0369a1); color: #fff; border-color: #075985; box-shadow: 0 2px 10px rgba(2,132,199,0.35); }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(6) { background: #eef2ff; color: #312e81; border-color: #a5b4fc; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(6):hover:not([aria-selected="true"]) { background: #e0e7ff; }
+  [data-testid="stTabs"] [role="tablist"] [role="tab"]:nth-of-type(6)[aria-selected="true"] { background: linear-gradient(180deg, #1e3a5f, #1e40af); color: #fff; border-color: #FF9933; box-shadow: 0 2px 10px rgba(30,58,95,0.4); }
+
+  /* Colored explainer & insight cards (mapping / trust, etc.) */
+  .cc-box { border-radius: 0.7rem; padding: 0.9rem 1.05rem; margin: 0 0 0.7rem 0; font-size: 0.9rem; line-height: 1.5; }
+  .cc-box-title { font-size: 0.95rem; font-weight: 800; margin: 0 0 0.45rem 0; letter-spacing: -0.01em; }
+  .cc-box ul { margin: 0.3rem 0 0 1.1rem; padding: 0; }
+  .cc-box li { margin: 0.25rem 0; }
+  .cc-box-trust { background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 1px solid #6ee7b7; border-left: 5px solid #059669; color: #064e3b; }
+  .cc-box-trust .cc-box-title { color: #047857; }
+  .cc-box-policy { background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #93c5fd; border-left: 5px solid #2563eb; color: #1e3a8a; }
+  .cc-box-policy .cc-box-title { color: #1d4ed8; }
+  .cc-box-map { background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border: 1px solid #fcd34d; border-left: 5px solid #d97706; color: #78350f; }
+  .cc-box-map .cc-box-title { color: #b45309; }
+  .cc-box-nav { background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); border: 1px solid #c4b5fd; border-left: 5px solid #7c3aed; color: #4c1d95; }
+  .cc-box-nav .cc-box-title { color: #6d28d9; }
+  .cc-chip-row { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.6rem 0 0.2rem 0; }
+  .cc-chip { display: inline-block; padding: 0.28rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
+  .cc-chip-red { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+  .cc-chip-green { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+  .cc-chip-blue { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+  .cc-hero-qa { background: linear-gradient(135deg, #1e3a5f 0%, #4c1d95 100%); color: #fff; padding: 0.9rem 1.15rem; border-radius: 0.7rem; margin: 0 0 0.75rem 0; border: 1px solid #312e81; }
+  .cc-hero-qa h2 { margin: 0; font-size: 1.15rem; font-weight: 800; color: #fff; }
+  .cc-hero-qa p { margin: 0.4rem 0 0 0; font-size: 0.88rem; opacity: 0.95; }
 
   #MainMenu { visibility: hidden; }
   footer { visibility: hidden; }
@@ -2289,41 +2323,52 @@ def _expander_mapping_and_truth_logic(*, for_tab: str = "map") -> None:
     with st.expander("How our mapping and truth / trust scores work", expanded=False):
         st.markdown(
             """
-**Two different “scores” (do not mix them up)**
-
-- **Facility truth / trust (Triage & Matching):** For each returned hospital, the **Trust Scorer** combines
-  (1) deterministic medical-consistency rules, (2) an **Extractor** LLM pass, and (3) a **Validator** LLM pass into a
-  **0–1 trust score** and a verdict: **VERIFIED · REVIEW · SUSPICIOUS**. This addresses the **“truth gap”** between
-  marketing text and what the record can actually support. Citations point to the exact sentences the score used.
-
-- **Policy / map statistics (Mission Planner, Desert Map, PIN risk):** We summarize **where** a chosen specialty
-  looks missing (desert **states** or **PINs**), using your Unity Catalog + Genie / policy pipeline. When sample sizes
-  are small, we surface **Wilson score confidence / prediction-style intervals** on proportions (e.g. share of
-  high-trust facilities in a PIN or desert share of PINs) — so the map and charts show **uncertainty**, not false
-  precision.
-
-**How the map is drawn (logic)**
-
-- **State level:** We place circles at **state centroids** (standard administrative anchors — gaps between icons are
-  geography, not “missing” states). A state is a **medical desert** for the selected specialty if the backend finds
-  **no verified in-scope coverage** there; other states are shown as **covered** (has facilities in our gold layer).
-- **Coverage Gap view:** Red emphasis + **desert heat** = where lack of access concentrates; green = at least one path
-  to in-scope care in the dataset.
-- **Specialty Hotspot view:** Blue heat = **where facilities mentioning that specialty concentrate** in the
-  data — a **supply / service-density proxy**, not disease prevalence. Use it to see capacity clustering vs deserts.
-- **Trust pins:** Colors reflect the **last triage run** on this device (verdict on each facility). They are
-  **illustrative positions** (coordinates or jittered state anchors), not a live national registry of every hospital.
-
-**Where to go next**
-
-- **Triage** — full per-facility trust breakdown and handoff. **Mission Planner** — Wilson and desert **tables /
-  charts** for a specialty. **Intelligence Engine** — agent architecture. This tab — **geographic** story + overlays.
-            """.strip()
+<div class="cc-box cc-box-trust">
+  <div class="cc-box-title">1 · Facility truth &amp; trust — Triage (green)</div>
+  <ul>
+    <li><b>Trust Scorer:</b> rules + <b>Extractor</b> LLM + <b>Validator</b> LLM → <b>0–1 score</b> + verdict.</li>
+    <li><b>Verdicts:</b> VERIFIED · REVIEW · SUSPICIOUS — closes the <b>truth gap</b> (claims vs record).</li>
+    <li><b>Citations</b> link to the exact text used — row- and step-level traceability.</li>
+  </ul>
+</div>
+<div class="cc-box cc-box-policy">
+  <div class="cc-box-title">2 · Policy &amp; map stats — blue</div>
+  <ul>
+    <li><b>Deserts</b> = where a specialty shows <b>no in-scope coverage</b> in our gold data (state or PIN).</li>
+    <li><b>Wilson intervals</b> = confidence bands on <b>proportions</b> when counts are small — honest uncertainty.</li>
+    <li>Same pipeline: <b>Unity Catalog</b> + Genie / policy API — <i>not</i> the same number as a single-facility trust %.</li>
+  </ul>
+</div>
+<div class="cc-box cc-box-map">
+  <div class="cc-box-title">3 · How the map is built — amber</div>
+  <p style="margin:0 0 0.5rem 0;"><b>State circles</b> sit on <b>centroids</b> (gaps = geography, not “missing” data).</p>
+  <div class="cc-chip-row">
+    <span class="cc-chip cc-chip-red">Coverage gap</span>
+    <span class="cc-chip cc-chip-green">Covered</span>
+    <span class="cc-chip cc-chip-blue">Hotspot heat</span>
+  </div>
+  <ul>
+    <li><b>Red / heat</b> — lack of access for this specialty; <b>green</b> — at least one path in the dataset.</li>
+    <li><b>Blue heat</b> — supply density proxy (where services cluster), <i>not</i> disease surveillance.</li>
+    <li><b>Trust pins</b> — last triage run on this device; positions are illustrative, not a full national registry.</li>
+  </ul>
+</div>
+<div class="cc-box cc-box-nav">
+  <div class="cc-box-title">Where to go next</div>
+  <ul>
+    <li><b>Triage</b> — per-facility trust + handoff</li>
+    <li><b>Mission Planner</b> — Wilson + desert tables</li>
+    <li><b>Intelligence Engine</b> — agent stack</li>
+    <li><b>This tab / Desert Map</b> — geography + overlays</li>
+  </ul>
+</div>
+            """.strip(),
+            unsafe_allow_html=True,
         )
         if for_tab == "analytics":
-            st.caption(
-                "This tab only records *what* was queried (demand signal). The trust and map **formulas** live in Triage, "
-                "Mission Planner, Desert Map, and Intelligence Engine — not in last year’s query log alone."
+            st.info(
+                "This tab only logs **what** was queried (demand signal). "
+                "Scoring and map math live in **Triage, Mission Planner, Desert Map, Intelligence Engine** — not in a raw query log by itself."
             )
 
 
@@ -2573,21 +2618,55 @@ border:1px solid #e2e8f0;border-radius:0.6rem;">
 # ── Tab 4: Query Analytics ──────────────────────────────────────────────────
 
 def _tab_analytics() -> None:
-    st.markdown('<div class="section-card"><h4>Public Health Query Analytics</h4>', unsafe_allow_html=True)
-    st.caption("Session-scoped log of triage queries for public health surveillance.")
-    st.markdown('</div>', unsafe_allow_html=True)
     st.markdown(
         """
-Every triage query you run on the **Triage & Matching** tab is silently logged here as a structured record —
-capturing the symptoms described, the clinical capabilities the agent inferred, and the geographic region of interest.
-
-Over a live session this becomes a **demand-side signal**: which specialties are being searched most, which states
-appear repeatedly, and where capability gaps are felt in real time. NGO planners can export this log as CSV or PDF
-to brief policymakers — turning user queries into an evidence-based resource allocation report.
-
-> **To populate this view:** run any triage query on the first tab, then return here.
-        """.strip()
+<div class="cc-hero-qa">
+  <h2>Public health query analytics</h2>
+  <p>Session log of Triage &amp; Matching — a demand-side signal for surveillance and policy briefings.</p>
+</div>
+        """.strip(),
+        unsafe_allow_html=True,
     )
+    a1, a2, a3 = st.columns(3)
+    a1.markdown(
+        """
+<div class="cc-box cc-box-trust" style="min-height:8.2rem">
+  <div class="cc-box-title">What we capture</div>
+  <ul>
+    <li>Symptoms &amp; clinical context</li>
+    <li>Capabilities the agent infers</li>
+    <li>Geographic / state interest</li>
+  </ul>
+</div>
+        """.strip(),
+        unsafe_allow_html=True,
+    )
+    a2.markdown(
+        """
+<div class="cc-box cc-box-policy" style="min-height:8.2rem">
+  <div class="cc-box-title">Why planners care</div>
+  <ul>
+    <li>See which specialties surface most</li>
+    <li>Repeat regions = felt gaps</li>
+    <li>Export CSV or PDF for meetings</li>
+  </ul>
+</div>
+        """.strip(),
+        unsafe_allow_html=True,
+    )
+    a3.markdown(
+        """
+<div class="cc-box cc-box-map" style="min-height:8.2rem">
+  <div class="cc-box-title">To populate this tab</div>
+  <ul>
+    <li>Run a match on <b>Triage &amp; Matching</b></li>
+    <li>Come back here for charts + download</li>
+  </ul>
+</div>
+        """.strip(),
+        unsafe_allow_html=True,
+    )
+    st.caption("Scoring and desert-map logic are **not** recomputed in this log — use the explainer below.")
     _expander_mapping_and_truth_logic(for_tab="analytics")
     log = st.session_state.get("query_log") or []
     if not log:
