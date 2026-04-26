@@ -1695,31 +1695,23 @@ def _tab_intelligence() -> None:
 
     with col_a:
         st.markdown("#### Why CareCompass is agentic")
+        st.caption("Same layout as the right column: **one row = one idea** — not a monolithic LLM wrapper.")
         st.markdown(
             """
-**LangGraph `StateGraph` true parallel fan-out**
-`add_conditional_edges` dispatches up to 2 specialist nodes simultaneously — real concurrent execution, not sequential chains.
-
-**7 `@mlflow.trace` agent spans**
-Supervisor · SQL · RAG · IDP · Trust · Geo · Synthesis. UUID4 `correlation_id` flows via `ContextVar` from HTTP header → AgentState → every MLflow span tag → Databricks UI.
-
-**Three-layer adversarial Trust Pipeline**
-4 deterministic medical rules (score ×0.65–0.85) → Extractor LLM Pass 1 (`uncertainty_0_1`) → Validator LLM Pass 2.
-Combined score: `0.45×det + 0.35×val + 0.20×(1−uncertainty)`; disagreement penalty ×0.85.
-
-**`Annotated[list, operator.add]` citation reducer**
-Parallel branches append atomically to shared list — zero race conditions across fan-out branches.
-
-**Wilson Score CI over 9,866 PIN codes**
-Every desert proportion returns `point · low_95 · high_95`; sparse regions get honest uncertainty bands, not false precision.
-
-**10,002 facilities · 41 columns · 5 Databricks services**
-Genie Text-to-SQL · gte-large-en Vector Search · Qwen 3 80B Model Serving · Unity Catalog Delta · MLflow 3.
+| Pillar | What we implemented |
+| --- | --- |
+| **LangGraph fan-out** | `StateGraph` + `add_conditional_edges` — up to **2** specialist nodes **in parallel** (real concurrent runs, not a serial chain) |
+| **MLflow 3 + correlation** | **7** `@mlflow.trace` spans (Supervisor, SQL, RAG, IDP, Trust, Geo, Synthesis) · `correlation_id` via **ContextVar** from HTTP → `AgentState` → every span → Databricks UI |
+| **3-layer trust pipeline** | **4** medical rules (score ×0.65–0.85) + Extractor + Validator · combined **0.45·det + 0.35·val + 0.20·(1−u)**; **×0.85** on extractor/validator disagreement |
+| **Citations (parallel-safe)** | `Annotated[list, operator.add]` — list merge across fan-out branches without races |
+| **Wilson (policy layer)** | **9,866** PINs in model · every desert **proportion** → point + 95% band (sparse data = honest width) |
+| **Data plane** | **10,002** facilities × **41** columns · **5** Databricks services: Genie, **gte-large-en** vector index, Qwen 3 80B serving, Unity Catalog Delta, MLflow 3 |
             """.strip()
         )
 
     with col_b:
         st.markdown("#### What we built beyond the brief")
+        st.caption("Features and integrations that go past the baseline challenge text — same table style as the left column.")
         st.markdown(
             """
 | Feature | Detail |
