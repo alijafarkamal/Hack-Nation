@@ -248,6 +248,21 @@ def _conf_pill(conf: float | None) -> str:
     return f'<span class="conf-pill {cls}">{pct}%</span>'
 
 
+def _clean_state_list(states: list[Any]) -> list[str]:
+    """Filter out null, empty, and non-state garbage values from API responses."""
+    result = []
+    for s in states:
+        if not s or not isinstance(s, str):
+            continue
+        s = s.strip()
+        if not s or s.lower() in ("null", "none", "undefined", "n/a", "—"):
+            continue
+        if s.startswith(("[", "{", '"')) or len(s) > 60:
+            continue
+        result.append(s)
+    return result
+
+
 def _log_query(symptoms: str, caps: list[str], state_hint: str = "") -> None:
     if "query_log" not in st.session_state:
         st.session_state.query_log = []
@@ -383,6 +398,7 @@ def _render_agent_pipeline(agents_merged: list[str] | None = None) -> None:
 
 
 def _render_trust_report(trust_artifacts: dict[str, Any] | None) -> None:
+    """Slim summary badge — used where space is tight."""
     if not trust_artifacts or not isinstance(trust_artifacts, dict):
         return
     per_fac = trust_artifacts.get("per_facility") or []
@@ -394,11 +410,82 @@ def _render_trust_report(trust_artifacts: dict[str, Any] | None) -> None:
     review = summary.get("review", 0)
     verified = n - suspicious - review
     st.markdown('<div class="section-card"><h4>Trust Scorer — Verification Report</h4>', unsafe_allow_html=True)
-    st.caption("Two-pass verification: Pass 1 (LLM Extractor) + Pass 2 (LLM Validator) + deterministic rules.")
     vc1, vc2, vc3 = st.columns(3)
     vc1.markdown(f'<div class="metric-box"><p class="num" style="color:#059669">{verified}</p><p class="label">Verified</p></div>', unsafe_allow_html=True)
     vc2.markdown(f'<div class="metric-box"><p class="num" style="color:#d97706">{review}</p><p class="label">Needs Review</p></div>', unsafe_allow_html=True)
     vc3.markdown(f'<div class="metric-box"><p class="num" style="color:#dc2626">{suspicious}</p><p class="label">Suspicious</p></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def _render_full_trust_report(trust_artifacts: dict[str, Any] | None) -> None:
+    """Full per-facility Trust Scorer — prominent feature shown immediately after matching."""
+    if not trust_artifacts or not isinstance(trust_artifacts, dict):
+        return
+    per_fac = trust_artifacts.get("per_facility") or []
+    summary = trust_artifacts.get("summary") or {}
+    if not per_fac:
+        return
+    n = summary.get("n", len(per_fac))
+    suspicious = summary.get("suspicious", 0)
+    review = summary.get("review", 0)
+    verified = n - suspicious - review
+
+    st.markdown("""
+<div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);color:#fff;
+padding:0.8rem 1.2rem;border-radius:0.75rem 0.75rem 0 0;margin-bottom:0;">
+  <h4 style="margin:0;color:#fff;font-size:1rem;">
+    Trust Scorer — Facility Verification Report
+  </h4>
+  <p style="margin:0.2rem 0 0 0;font-size:0.78rem;color:#bfdbfe;">
+    Two-pass LLM pipeline (Extractor → Validator) + deterministic medical consistency rules.
+    Flags contradictions: e.g. Surgery claimed without Anaesthesiologist, ICU beds with no Oxygen.
+  </p>
+</div>""", unsafe_allow_html=True)
+
+    st.markdown('<div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 0.75rem 0.75rem;padding:1rem;background:#fff;margin-bottom:0.75rem;">', unsafe_allow_html=True)
+    vc1, vc2, vc3, vc4 = st.columns(4)
+    vc1.markdown(f'<div class="metric-box"><p class="num" style="color:#059669">{verified}</p><p class="label">Verified</p></div>', unsafe_allow_html=True)
+    vc2.markdown(f'<div class="metric-box"><p class="num" style="color:#d97706">{review}</p><p class="label">Needs Review</p></div>', unsafe_allow_html=True)
+    vc3.markdown(f'<div class="metric-box"><p class="num" style="color:#dc2626">{suspicious}</p><p class="label">Suspicious</p></div>', unsafe_allow_html=True)
+    vc4.markdown(f'<div class="metric-box"><p class="num">{n}</p><p class="label">Total Analyzed</p></div>', unsafe_allow_html=True)
+
+    st.markdown("**Per-Facility Verification:**")
+    for fac in per_fac[:12]:
+        fname = fac.get("facility", "Unknown")
+        combined = float(fac.get("combined_trust_0_1", 0) or 0)
+        verdict = fac.get("final_verdict", "REVIEW")
+        flags = fac.get("all_flags") or []
+        disagreements = fac.get("disagreements") or []
+        vcolor, vbg, vtext = _VERDICT_STYLES.get(verdict, ("#64748b", "#f1f5f9", "#334155"))
+        pct = round(combined * 100)
+        badge_label = "Verified by Medical Standard Agent" if verdict == "VERIFIED" else verdict
+
+        c1, c2, c3 = st.columns([4, 2, 2])
+        with c1:
+            st.markdown(f'<span style="font-weight:700;color:#1e293b;">{fname}</span>', unsafe_allow_html=True)
+        with c2:
+            st.markdown(
+                f'<div class="trust-bar"><div class="trust-fill" style="width:{pct}%;background:{vcolor};"></div></div>'
+                f'<span style="font-size:0.75rem;color:{vcolor};font-weight:700;">{pct}% trust</span>',
+                unsafe_allow_html=True,
+            )
+        with c3:
+            st.markdown(
+                f'<span class="verdict-badge" style="background:{vbg};color:{vtext};border:1px solid {vcolor};">{badge_label}</span>',
+                unsafe_allow_html=True,
+            )
+        for fl in flags[:2]:
+            st.markdown(f'<span style="font-size:0.77rem;color:#dc2626;">⚠ {_humanize(fl)}</span>', unsafe_allow_html=True)
+        for dg in disagreements[:1]:
+            st.markdown(f'<span style="font-size:0.77rem;color:#d97706;">⚡ {_humanize(dg)}</span>', unsafe_allow_html=True)
+        st.markdown('<hr style="margin:0.3rem 0;border:none;border-top:1px solid #f1f5f9;">', unsafe_allow_html=True)
+
+    top_reasons = summary.get("top_contradiction_reasons") or []
+    if top_reasons:
+        st.markdown("**Top Contradiction Patterns across facilities:**")
+        for r in top_reasons[:5]:
+            st.markdown(f'- {_humanize(r.get("reason", ""))} *(found in {r.get("count", 0)} facilities)*')
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -631,7 +718,7 @@ def _service_status() -> None:
 
 def _tab_triage() -> None:
     st.markdown(f'<p class="disclaimer">{DISCLAIMER_TRIAGE}</p>', unsafe_allow_html=True)
-    for key, default in [("triage_session", None), ("match_result", None), ("triage_sym_area", "")]:
+    for key, default in [("triage_session", None), ("match_result", None), ("triage_sym_area", ""), ("triage_region", "")]:
         if key not in st.session_state:
             st.session_state[key] = default
 
@@ -641,25 +728,52 @@ def _tab_triage() -> None:
             st.session_state.triage_sym_area = q
             st.rerun()
 
-    symptoms = st.text_area("Describe symptoms, location, and urgency", height=120, key="triage_sym_area",
-                            placeholder="e.g. Fever and difficulty breathing for 2 days; need emergency care near Patna")
+    # ── Combined input: symptoms + region in one form ──────────────────────
+    st.markdown('<div class="section-card"><h4>Symptom Triage + Facility Matching</h4>', unsafe_allow_html=True)
+    st.caption("Enter symptoms and region below. One click runs the full pipeline: triage analysis → facility matching → Trust Scorer.")
+    sym_col, reg_col = st.columns([3, 1])
+    with sym_col:
+        symptoms = st.text_area(
+            "Symptoms, urgency, and clinical context",
+            height=110, key="triage_sym_area",
+            placeholder="e.g. Fever and difficulty breathing for 2 days; need emergency care",
+        )
+    with reg_col:
+        region = st.text_input(
+            "Region / State",
+            key="triage_region",
+            placeholder="e.g. Bihar",
+        )
+        top_k = st.slider("# Results", 1, 20, 10, key="triage_top_k")
+    run_all = st.button("Analyze & Find Matching Facilities", type="primary", use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    if st.button("Analyze Capabilities", type="primary", use_container_width=True):
+    if run_all:
         if not (symptoms or "").strip():
             st.error("Please enter symptoms first.")
         else:
-            with st.status("Querying Databricks agents via FastAPI (5–20s typical)…", expanded=True) as status:
+            with st.status("Step 1 / 2 — Triage analysis (Databricks agents)…", expanded=True) as status:
                 try:
                     st.session_state.triage_session = api_client.triage_analyze(symptoms.strip())
                     st.session_state.match_result = None
-                    status.update(label="Analysis complete", state="complete", expanded=False)
-                    _log_query(symptoms.strip(), st.session_state.triage_session.get("capabilities_needed") or [])
+                    _log_query(symptoms.strip(), st.session_state.triage_session.get("capabilities_needed") or [], region.strip())
+                    status.update(label="Step 1 complete. Running facility match…", state="running")
+                    ts_new = st.session_state.triage_session
+                    sid = ts_new.get("session_id") if ts_new else None
+                    if sid:
+                        st.session_state.match_result = api_client.triage_match_facilities(
+                            sid, top_k=top_k, state_hint=region.strip() or None,
+                        )
+                    status.update(label="Analysis + Matching complete", state="complete", expanded=False)
                 except Exception as e:
                     status.update(label="Error", state="error", expanded=False)
                     st.error(_safe_str(e))
                     st.stop()
 
     ts = st.session_state.triage_session
+    mr = st.session_state.match_result
+
+    # ── Triage summary (capabilities, red flags) ───────────────────────────
     if ts:
         dc, warn = ts.get("degraded_components") or [], ts.get("warnings") or []
         if dc or warn:
@@ -675,63 +789,40 @@ def _tab_triage() -> None:
             flags = ts.get("red_flags") or []
             st.markdown(" ".join(f'<span class="badge-flag">{_humanize(f)}</span>' for f in flags) if flags else "<em>None detected</em>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
-        gsum = ts.get("graph_summary")
-        if gsum:
-            _render_agent_output(str(gsum))
-        _render_citations(ts.get("citations") or [], label="Agent Reasoning Chain", max_visible=6)
 
-    st.divider()
-    st.markdown('<div class="section-card"><h4>Facility Matching (Multi-Agent Pipeline)</h4>', unsafe_allow_html=True)
-    col_m1, col_m2, col_m3 = st.columns([1, 1, 1])
-    with col_m1:
-        top_k = st.slider("Number of results", 1, 20, 10)
-    with col_m2:
-        state_hint = st.text_input("State filter", placeholder="e.g. Bihar")
-    with col_m3:
-        do_match = st.button("Find Matching Facilities", use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    if do_match:
-        if not ts or not ts.get("session_id"):
-            st.error("Run **Analyze Capabilities** first.")
-        else:
-            with st.status("Running multi-agent facility match…", expanded=True) as status:
-                try:
-                    st.session_state.match_result = api_client.triage_match_facilities(ts["session_id"], top_k=top_k, state_hint=state_hint or None)
-                    status.update(label="Matching complete", state="complete", expanded=False)
-                except Exception as e:
-                    status.update(label="Error", state="error", expanded=False)
-                    st.error(_safe_str(e))
-                    st.stop()
-
-    mr = st.session_state.match_result
+    # ── Match results: Trust Scorer FIRST, then facility cards ────────────
     if mr:
         st.markdown(f'<p class="disclaimer">{mr.get("safety_disclaimer") or DISCLAIMER_MATCH}</p>', unsafe_allow_html=True)
-        _render_thought_process(mr)
-        _render_trust_report(mr.get("trust_artifacts"))
 
+        # 1. Agent pipeline / thought process
+        _render_thought_process(mr)
+
+        # 2. Trust Scorer — prominent, with full per-facility detail ─────────
+        _render_full_trust_report(mr.get("trust_artifacts"))
+
+        # 3. Enrich + Facility Cards
         fac_names = _extract_facility_names_from_mr(mr)
         if fac_names:
-            st.markdown('<div class="section-card"><h4>Enrich Facilities with Web Data (Tavily)</h4>', unsafe_allow_html=True)
-            st.caption("Search the web to find phone, website, and hours for matched facilities.")
-            if st.button("Enrich All Facilities", key="btn_enrich_all"):
-                bar = st.progress(0, text="Enriching facilities…")
-                for idx, name in enumerate(fac_names[:8]):
-                    _enrich_facility_cached(name)
-                    bar.progress((idx + 1) / min(8, len(fac_names)), text=f"Enriched {idx+1}/{min(8, len(fac_names))}")
-                bar.empty()
-                st.success(f"Enriched {min(8, len(fac_names))} facilities")
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+            enrich_col, _ = st.columns([2, 3])
+            with enrich_col:
+                if st.button("Enrich All with Web Data (Tavily)", key="btn_enrich_all"):
+                    bar = st.progress(0, text="Enriching…")
+                    for idx, name in enumerate(fac_names[:8]):
+                        _enrich_facility_cached(name)
+                        bar.progress((idx + 1) / min(8, len(fac_names)), text=f"Enriched {idx+1}/{min(8, len(fac_names))}")
+                    bar.empty()
+                    st.rerun()
 
         _render_facility_cards(mr)
 
+        # 4. Supporting evidence + citations pushed to bottom expanders ────
         out_md = mr.get("graph_summary") or mr.get("final_answer")
         if out_md:
-            with st.expander("Full Agent Output (Markdown)"):
+            with st.expander("Supporting Evidence (full agent output)"):
                 _render_agent_output(str(out_md))
-        _render_citations(mr.get("citations") or [], label="Agentic Traceability — Chain of Thought", max_visible=8)
-        with st.expander("Raw Agent Artifacts"):
+        with st.expander("Agentic Traceability — Chain of Thought Citations"):
+            _render_citations(mr.get("citations") or [], label="Citations", max_visible=8)
+        with st.expander("Raw Agent Artifacts (JSON)"):
             st.json({"extraction_result": mr.get("extraction_result"), "trust_artifacts": mr.get("trust_artifacts"), "synthesis_artifacts": mr.get("synthesis_artifacts")})
         tid = _trace_id_html(mr.get("session_id", ts.get("session_id", "") if ts else ""), mr.get("correlation_id", ""))
         if tid:
@@ -749,7 +840,7 @@ def _tab_triage() -> None:
         sub_prev = st.form_submit_button("Preview Referral")
     if sub_prev:
         if not (ts and ts.get("session_id")):
-            st.error("Run **Analyze Capabilities** first.")
+            st.error("Run the analysis first.")
         elif not to_fac.strip():
             st.error("Enter a facility name.")
         else:
@@ -810,7 +901,7 @@ def _tab_planner() -> None:
     d_states_list: list[str] = []
     covered_states_list: list[str] = []
     if rep:
-        d_states_list = rep.get("desert_states") or []
+        d_states_list = _clean_state_list(rep.get("desert_states") or [])
         all_known = set(INDIA_STATE_CENTROIDS.keys())
         covered_states_list = sorted(all_known - set(d_states_list))
 
@@ -841,7 +932,7 @@ def _tab_planner() -> None:
         st.markdown('</div>', unsafe_allow_html=True)
 
     if rep:
-        d_pins = rep.get("desert_pins") or []
+        d_pins = [str(p) for p in (rep.get("desert_pins") or []) if p and str(p).strip() not in ("null", "None", "")]
         mc1, mc2, mc3 = st.columns(3)
         mc1.markdown(f'<div class="metric-box"><p class="num">{len(d_states_list)}</p><p class="label">Desert States</p></div>', unsafe_allow_html=True)
         mc2.markdown(f'<div class="metric-box"><p class="num">{len(d_pins)}</p><p class="label">Desert PINs</p></div>', unsafe_allow_html=True)
@@ -994,7 +1085,7 @@ def _tab_map() -> None:
     des = st.session_state.get("map_deserts")
     d_states: list[str] = []
     if des and isinstance(des, dict):
-        d_states = list(des.get("desert_states") or [])
+        d_states = _clean_state_list(des.get("desert_states") or [])
     if region_q:
         q = region_q.lower()
         d_states = [s for s in d_states if q in s.lower()]
@@ -1021,14 +1112,14 @@ def _tab_map() -> None:
 </div>""", unsafe_allow_html=True)
     with st.expander("View Desert Lists"):
         if des and isinstance(des, dict):
-            ds = des.get("desert_states") or []
-            dp = des.get("desert_pins") or []
+            ds = _clean_state_list(des.get("desert_states") or [])
+            dp = [str(p) for p in (des.get("desert_pins") or []) if p and str(p).strip() not in ("null", "None", "")]
             if ds:
                 st.markdown(" ".join(f'<span class="badge-desert">{s}</span>' for s in ds[:100]), unsafe_allow_html=True)
             if dp:
                 st.markdown(" ".join(f'<span class="badge-desert">{p}</span>' for p in dp[:100]), unsafe_allow_html=True)
     if des and isinstance(des, dict):
-        st.download_button("Download Desert States", data="\n".join(des.get("desert_states") or []), file_name="desert_states.txt")
+        st.download_button("Download Desert States", data="\n".join(_clean_state_list(des.get("desert_states") or [])), file_name="desert_states.txt")
 
 
 # ── Tab 4: Query Analytics ──────────────────────────────────────────────────
