@@ -2235,25 +2235,37 @@ def _tab_map() -> None:
     m2.metric("Covered states", len(c_states))
     m3.metric("Desert PINs", len(d_pins))
     with ch_col:
-        if d_states and pin_counts:
+        if d_states:
+            use_pin_counts = pin_counts and any(v > 0 for v in pin_counts.values())
+            if use_pin_counts:
+                bar_col = "Desert PINs (est.)"
+                bar_vals = [pin_counts.get(s, 0) for s in d_states]
+                chart_title = f"Desert PIN density — {loaded_spec[:24]}"
+            else:
+                bar_col = "Coverage Gap"
+                bar_vals = [1] * len(d_states)
+                chart_title = f"Desert states — {loaded_spec[:24]} (no coverage)"
             df_b = (
-                pd.DataFrame([{"State": s, "Desert PINs (est.)": pin_counts.get(s, 0)} for s in d_states])
-                .sort_values("Desert PINs (est.)", ascending=True)
+                pd.DataFrame([{"State": s, bar_col: v} for s, v in zip(d_states, bar_vals)])
+                .sort_values(bar_col, ascending=True)
             )
             figb = go.Figure(
                 go.Bar(
                     y=df_b["State"],
-                    x=df_b["Desert PINs (est.)"],
+                    x=df_b[bar_col],
                     orientation="h",
                     marker_color="#dc2626",
+                    text=df_b[bar_col] if use_pin_counts else ["desert" for _ in df_b["State"]],
+                    textposition="auto",
                 ),
             )
             figb.update_layout(
-                title=f"Top coverage gaps — {loaded_spec[:24]}",
+                title=chart_title,
                 height=max(220, 28 * len(df_b)),
                 margin=dict(l=0, r=8, t=36, b=8),
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(showticklabels=use_pin_counts),
             )
             st.plotly_chart(figb, use_container_width=True)
 
