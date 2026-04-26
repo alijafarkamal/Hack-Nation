@@ -1634,6 +1634,90 @@ def _architecture_graph_text_fallback(gdata: dict[str, Any]) -> None:
         st.code("flowchart LR\n" + "\n".join(parts), language="mermaid")
 
 
+def _tab_intelligence() -> None:
+    """Intelligence Engine — agentic architecture deep-dive and what was built beyond the brief."""
+    st.markdown("### Intelligence Engine")
+    st.caption("Technical architecture, agentic design decisions, and engineering scope beyond the challenge brief.")
+
+    col_a, col_b = st.columns(2, gap="large")
+
+    with col_a:
+        st.markdown("#### Why CareCompass is agentic")
+        st.markdown(
+            """
+**LangGraph `StateGraph` true parallel fan-out**
+`add_conditional_edges` dispatches up to 2 specialist nodes simultaneously — real concurrent execution, not sequential chains.
+
+**7 `@mlflow.trace` agent spans**
+Supervisor · SQL · RAG · IDP · Trust · Geo · Synthesis. UUID4 `correlation_id` flows via `ContextVar` from HTTP header → AgentState → every MLflow span tag → Databricks UI.
+
+**Three-layer adversarial Trust Pipeline**
+4 deterministic medical rules (score ×0.65–0.85) → Extractor LLM Pass 1 (`uncertainty_0_1`) → Validator LLM Pass 2.
+Combined score: `0.45×det + 0.35×val + 0.20×(1−uncertainty)`; disagreement penalty ×0.85.
+
+**`Annotated[list, operator.add]` citation reducer**
+Parallel branches append atomically to shared list — zero race conditions across fan-out branches.
+
+**Wilson Score CI over 9,866 PIN codes**
+Every desert proportion returns `point · low_95 · high_95`; sparse regions get honest uncertainty bands, not false precision.
+
+**10,002 facilities · 41 columns · 5 Databricks services**
+Genie Text-to-SQL · gte-large-en Vector Search · Qwen 3 80B Model Serving · Unity Catalog Delta · MLflow 3.
+            """.strip()
+        )
+
+    with col_b:
+        st.markdown("#### What we built beyond the brief")
+        st.markdown(
+            """
+| Feature | Detail |
+|---|---|
+| **Three-layer Trust Pipeline** | Deterministic rules + Extractor LLM + Validator LLM with disagreement scoring |
+| **Parallel fan-out** | Two agents run concurrently on composite queries via LangGraph |
+| **Wilson Score CI** | Prediction bands on desert proportions, not just binary gap existence |
+| **End-to-end correlation ID** | UUID traces HTTP → every agent node → Databricks MLflow UI |
+| **Twilio SMS referral** | Full verified patient handoff chain to receiving facility |
+| **Tavily web enrichment** | Fills missing facility contacts via live public web search |
+| **Three-mode crisis map** | Coverage Gap · Specialty Hotspot heatmap · Trust Pins overlay |
+| **Graceful degradation** | Graph continues on partial Databricks service failures |
+| **PDF mission reports** | Shareable NGO planning artifact with embedded Plotly charts |
+| **Query analytics log** | Session usage as a secondary public-health demand signal |
+            """.strip()
+        )
+
+    st.divider()
+    st.markdown("#### Four-Layer System Model")
+    st.markdown(
+        """
+```
+┌────────────────────────────────────────────────────────────┐
+│  USER LAYER (no AI)                                         │
+│  ASHA on a phone  ·  NGO planner on a laptop               │
+└────────────────────────────────────────────────────────────┘
+                            ↑
+┌────────────────────────────────────────────────────────────┐
+│  REASONING LAYER  ⚡ AI ⚡                                  │
+│  Symptom → capability triage  ·  Natural language search   │
+│  Evidence-cited explanations  ·  LLM contradiction audit   │
+└────────────────────────────────────────────────────────────┘
+                            ↑
+┌────────────────────────────────────────────────────────────┐
+│  TRUST LAYER  ⚡ AI ⚡                                      │
+│  Multi-agent extractor + validator  ·  Contradiction detect │
+│  Trust score with Wilson confidence intervals              │
+└────────────────────────────────────────────────────────────┘
+                            ↑
+┌────────────────────────────────────────────────────────────┐
+│  DATA LAYER (no AI)                                         │
+│  10,002 raw facility rows  ·  41 columns of unstructured   │
+│  text  ·  Unity Catalog Delta tables  ·  Vector Search idx  │
+└────────────────────────────────────────────────────────────┘
+```
+*The two AI layers are what turn 10,002 unsearchable text blobs into a routable, trust-scored care network.*
+        """.strip()
+    )
+
+
 def _tab_architecture() -> None:
     """System architecture: interactive force graph (streamlit-agraph / vis.js). No Neo4j required for this static diagram."""
     st.markdown("### System Architecture — Graph Methodology")
@@ -1672,34 +1756,6 @@ def _tab_triage() -> None:
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
-
-    with st.sidebar.expander("Why CareCompass is agentic (technical architecture)", expanded=False):
-        st.markdown(
-            """
-- **LangGraph `StateGraph` true parallel fan-out** — `add_conditional_edges` dispatches up to 2 specialist nodes simultaneously; real concurrent execution, not sequential chains
-- **7 `@mlflow.trace` agent spans** — Supervisor · SQL · RAG · IDP · Trust · Geo · Synthesis; UUID4 `correlation_id` via `ContextVar` flows HTTP header → AgentState → every MLflow span tag → Databricks UI
-- **Three-layer adversarial Trust Pipeline** — 4 deterministic medical rules (score ×0.65–0.85) → Extractor LLM Pass 1 (`uncertainty_0_1`) → Validator LLM Pass 2; combined = `0.45×det + 0.35×val + 0.20×(1−uncertainty)`; disagreement penalty ×0.85
-- **`Annotated[list, operator.add]` citation reducer** — parallel branches append atomically to shared list; zero race conditions across fan-out branches
-- **Wilson Score CI over 9,866 PIN codes** — every desert proportion returns `point · low_95 · high_95`; sparse regions get honest uncertainty bands, not false precision
-- **10,002 facilities · 41 columns · 5 Databricks services** — Genie Text-to-SQL · gte-large-en Vector Search · Qwen 3 80B Model Serving · Unity Catalog Delta · MLflow 3
-            """.strip()
-        )
-
-    with st.sidebar.expander("What we built beyond the brief", expanded=False):
-        st.markdown(
-            """
-- **Three-layer Trust Pipeline** — deterministic rules + Extractor LLM + Validator LLM with disagreement scoring
-- **Parallel fan-out** — two agents run simultaneously on composite queries
-- **Wilson Score CI** — prediction bands on desert proportions, not just gap existence
-- **End-to-end correlation ID** — UUID traces HTTP → every agent node → Databricks MLflow UI
-- **Twilio SMS referral** — full verified patient handoff chain
-- **Tavily web enrichment** — fills missing facility contacts from public web
-- **Three-mode crisis map** — Coverage Gap · Specialty Hotspot · Trust Pins
-- **Graceful degradation** — graph continues on partial Databricks failures
-- **PDF mission reports** — shareable NGO planning artifact with embedded charts
-- **Query analytics** — session usage as secondary public-health signal
-            """.strip()
-        )
 
     st.sidebar.markdown("### Try a Query")
     for i, q in enumerate(EXAMPLE_QUERIES):
@@ -2443,8 +2499,8 @@ def main() -> None:
 </div>""", unsafe_allow_html=True)
 
     _service_status()
-    t_chat, t_plan, t_map, t_analytics, t_arch = st.tabs(
-        ["Triage & Matching", "Mission Planner", "Desert Map", "Query Analytics", "System Architecture"]
+    t_chat, t_plan, t_map, t_analytics, t_arch, t_intel = st.tabs(
+        ["Triage & Matching", "Mission Planner", "Desert Map", "Query Analytics", "System Architecture", "Intelligence Engine"]
     )
     with t_chat:
         _tab_triage()
@@ -2456,6 +2512,8 @@ def main() -> None:
         _tab_analytics()
     with t_arch:
         _tab_architecture()
+    with t_intel:
+        _tab_intelligence()
 
 
 if __name__ == "__main__":

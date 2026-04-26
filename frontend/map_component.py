@@ -244,6 +244,15 @@ def create_india_map(
             spec = d.get("specialty") or specialty or "—"
             region = d.get("state") or "—"
             r_m = float(d.get("radius_m") or covered_radius_m())
+            popup_html = (
+                f"<div style='min-width:220px;font-family:sans-serif;line-height:1.6'>"
+                f"<b style='color:#15803d;font-size:13px;'>✓ Verified Coverage</b><br>"
+                f"<b>State:</b> {region}<br>"
+                f"<b>Specialty:</b> {spec.title()}<br>"
+                f"<b>Status:</b> <span style='color:#15803d;'>Facilities confirmed in this state</span><br>"
+                f"<b>Action:</b> Run a triage query to see trust-verified facilities here"
+                f"</div>"
+            )
             folium.Circle(
                 location=[float(lat), float(lon)],
                 radius=r_m,
@@ -252,13 +261,8 @@ def create_india_map(
                 fill=True,
                 fill_color="#22c55e",
                 fill_opacity=0.20,
-                popup=folium.Popup(
-                    f"<b style='color:#15803d;'>Covered</b><br>"
-                    f"<b>State:</b> {region}<br>"
-                    f"<b>Specialty:</b> {spec}",
-                    max_width=260,
-                ),
-                tooltip=f"Covered: {region}",
+                popup=folium.Popup(popup_html, max_width=280),
+                tooltip=f"✓ {region} — {spec.title()} covered · click for details",
             ).add_to(cov_group)
             folium.Marker(
                 location=[float(lat), float(lon)],
@@ -267,7 +271,8 @@ def create_india_map(
                     icon_size=(28, 28),
                     icon_anchor=(14, 14),
                 ),
-                tooltip=f"{region}",
+                popup=folium.Popup(popup_html, max_width=280),
+                tooltip=f"✓ {region} — {spec.title()} covered",
             ).add_to(cov_group)
         cov_group.add_to(m)
 
@@ -281,6 +286,18 @@ def create_india_map(
             region = d.get("state") or "—"
             pc = int(d.get("pin_count") or 0)
             r_m = float(d.get("radius_m") or desert_radius_m(pc))
+            pin_txt = f"~{pc} desert PINs identified" if pc > 0 else "No verified facilities found"
+            popup_html = (
+                f"<div style='min-width:240px;font-family:sans-serif;line-height:1.6'>"
+                f"<b style='color:#dc2626;font-size:13px;'>⚠ Medical Desert</b><br>"
+                f"<b>State:</b> {region}<br>"
+                f"<b>Specialty:</b> {spec.title()}<br>"
+                f"<b>Coverage:</b> <span style='color:#dc2626;'>Zero verified {spec} facilities</span><br>"
+                f"<b>Desert PINs:</b> {pin_txt}<br>"
+                f"<b>Risk:</b> Patients must travel out-of-state for this specialty<br>"
+                f"<b>Action:</b> Priority zone for NGO resource deployment"
+                f"</div>"
+            )
             folium.Circle(
                 location=[float(lat), float(lon)],
                 radius=r_m,
@@ -289,14 +306,8 @@ def create_india_map(
                 fill=True,
                 fill_color="#ef4444",
                 fill_opacity=0.28,
-                popup=folium.Popup(
-                    f"<b style='color:#dc2626;'>Medical desert</b><br>"
-                    f"<b>State:</b> {region}<br>"
-                    f"<b>Specialty:</b> {spec}<br>"
-                    f"<b>Desert PINs (est. in view):</b> {pc}",
-                    max_width=280,
-                ),
-                tooltip=f"Desert: {region} · ~{pc} PINs",
+                popup=folium.Popup(popup_html, max_width=300),
+                tooltip=f"⚠ {region} — {spec.title()} DESERT · {pin_txt} · click for details",
             ).add_to(desert_group)
             folium.Marker(
                 location=[float(lat), float(lon)],
@@ -305,7 +316,8 @@ def create_india_map(
                     icon_size=(28, 28),
                     icon_anchor=(14, 14),
                 ),
-                tooltip=f"{region} — desert",
+                popup=folium.Popup(popup_html, max_width=300),
+                tooltip=f"⚠ {region} — {spec.title()} desert",
             ).add_to(desert_group)
         desert_group.add_to(m)
 
