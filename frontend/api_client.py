@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from typing import Any
@@ -9,10 +10,44 @@ from typing import Any
 import requests
 
 _LAST_REQUEST_ID: str | None = None
+_DEBUG_LOG_PATH = "/home/ali-jafar/hack-nation/.cursor/debug-9b8bd5.log"
+
+
+def _dbg_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
+    # #region agent log
+    try:
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "sessionId": "9b8bd5",
+                        "runId": run_id,
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(__import__("time").time() * 1000),
+                    },
+                    ensure_ascii=True,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
 
 
 def _base_url() -> str:
-    return (os.environ.get("CARECOMPASS_API_URL") or "http://127.0.0.1:8000").rstrip("/")
+    raw = os.environ.get("CARECOMPASS_API_URL") or "http://127.0.0.1:8000"
+    resolved = raw.rstrip("/")
+    _dbg_log(
+        "pre-fix",
+        "H1",
+        "frontend/api_client.py:_base_url",
+        "Resolved CARECOMPASS_API_URL",
+        {"raw": raw, "resolved": resolved},
+    )
+    return resolved
 
 
 def get_api_base() -> str:
@@ -37,6 +72,18 @@ class ApiError(Exception):
         raw: Any = None,
     ) -> None:
         super().__init__(message)
+        _dbg_log(
+            "pre-fix",
+            "H2",
+            "frontend/api_client.py:ApiError.__init__",
+            "ApiError instance created",
+            {
+                "status": status,
+                "has_message_attr_before": hasattr(self, "message"),
+                "detail_present": bool(detail),
+                "correlation_present": bool(correlation_id),
+            },
+        )
         self.status = status
         self.detail = detail
         self.correlation_id = correlation_id
@@ -88,6 +135,13 @@ def request_json(
         else:
             raise ValueError(f"Unsupported method: {method}")
     except requests.RequestException as e:
+        _dbg_log(
+            "pre-fix",
+            "H1",
+            "frontend/api_client.py:request_json",
+            "Network exception during request",
+            {"method": method, "path": path, "error_type": type(e).__name__},
+        )
         raise ApiError(f"Network error: {e}", status=0, detail=str(e)) from e
 
     _after_request_id(resp)

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import datetime
 from io import BytesIO
@@ -23,6 +24,31 @@ import api_client
 from map_component import create_india_map, desert_states_from_names
 
 # --- Constants ----------------------------------------------------------------
+_DEBUG_LOG_PATH = "/home/ali-jafar/hack-nation/.cursor/debug-9b8bd5.log"
+
+
+def _dbg_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
+    # #region agent log
+    try:
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "sessionId": "9b8bd5",
+                        "runId": run_id,
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(__import__("time").time() * 1000),
+                    },
+                    ensure_ascii=True,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
 
 DISCLAIMER_TRIAGE = (
     "This is a capability-matching triage assistant, not a medical diagnosis. "
@@ -195,6 +221,13 @@ def _generate_mission_pdf(
 
 
 def _service_status() -> None:
+    _dbg_log(
+        "pre-fix",
+        "H3",
+        "frontend/app.py:_service_status",
+        "Entered service status block",
+        {"api_base": api_client.get_api_base()},
+    )
     with st.expander("Service status (health + readiness)", expanded=False):
         c1, c2 = st.columns(2)
         with c1:
@@ -215,6 +248,17 @@ def _service_status() -> None:
                 f"Tavily: configured={tv.get('configured', '—')}"
             )
         except api_client.ApiError as e:
+            _dbg_log(
+                "pre-fix",
+                "H2",
+                "frontend/app.py:_service_status",
+                "Caught ApiError in healthz handler",
+                {
+                    "has_message_attr": hasattr(e, "message"),
+                    "exception_repr": str(e),
+                    "status": getattr(e, "status", None),
+                },
+            )
             st.error(f"healthz: {e.message}")
         try:
             r = api_client.readiness()
