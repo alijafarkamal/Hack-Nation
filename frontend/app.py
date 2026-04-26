@@ -310,51 +310,11 @@ def inject_css() -> None:
 
   #MainMenu { visibility: hidden; }
   footer { visibility: hidden; }
-
-  /* Triage: sample query capsules (oval / pill chips, full text wrap) */
-  div[data-testid="stPills"] { width: 100% !important; }
-  div[data-testid="stPills"] > div:has(> [role="radiogroup"]),
-  div[data-testid="stPills"] [role="radiogroup"] {
-    display: flex !important; flex-wrap: wrap !important; gap: 0.55rem !important;
-    width: 100% !important; align-items: flex-start !important;
-  }
-  div[data-testid="stPills"] [role="radio"],
-  div[data-testid="stPills"] button[role="radio"],
-  div[data-testid="stPills"] [data-baseweb="button"] {
-    border-radius: 9999px !important;
-    border: 1.5px solid #c7d2fe !important;
-    background: linear-gradient(180deg, #ffffff, #f1f5f9) !important;
-    color: #1e3a5f !important;
-    font-weight: 500 !important;
-    font-size: 0.78rem !important;
-    line-height: 1.38 !important;
-    padding: 0.5rem 1.15rem !important;
-    min-height: 0 !important;
-    height: auto !important;
-    max-width: 100% !important;
-    white-space: normal !important;
-    text-align: left !important;
-  }
-  div[data-testid="stPills"] [role="radio"][aria-checked="true"],
-  div[data-testid="stPills"] [data-state="checked"] {
-    background: linear-gradient(180deg, #eff6ff, #bfdbfe) !important;
-    border-color: #2563eb !important;
-    color: #1e3a8a !important;
-    font-weight: 700 !important;
-    box-shadow: 0 1px 4px rgba(37, 99, 235, 0.15);
-  }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-def _on_triage_example_pill() -> None:
-    """Set symptom text area from sample-query pill (Streamlit on_change)."""
-    picked = st.session_state.get("triage_example_pill")
-    if picked:
-        st.session_state.triage_sym_area = picked
-
 
 def _safe_str(e: Exception) -> str:
     return str(e)
@@ -1797,25 +1757,17 @@ def _tab_triage() -> None:
         if key not in st.session_state:
             st.session_state[key] = default
 
+    st.sidebar.markdown("### Try a Query")
+    for i, q in enumerate(EXAMPLE_QUERIES):
+        if st.sidebar.button(q, key=f"ex_{i}"):
+            st.session_state.triage_sym_area = q
+            st.rerun()
+
     # ── Combined input: symptoms + region in one form ──────────────────────
     st.markdown('<div class="section-card"><h4>Symptom Triage + Facility Matching</h4>', unsafe_allow_html=True)
     st.caption(
-        "Enter symptoms and region below, or **pick a sample capsule** to pre-fill. One click runs the full pipeline: "
-        "triage analysis → facility matching → multi-agent truth verification."
-    )
-    st.markdown(
-        "<p class='example-query-hint' style='margin:0.35rem 0 0.5rem 0;font-size:0.88rem;color:#475569;'>"
-        "<b>Sample queries</b> — tap a capsule to load the text area; you can edit wording, set region, then run.</p>",
-        unsafe_allow_html=True,
-    )
-    st.pills(
-        "Load a sample case",
-        EXAMPLE_QUERIES,
-        key="triage_example_pill",
-        on_change=_on_triage_example_pill,
-        help="Fills the symptom box with a realistic triage + matching scenario.",
-        width="stretch",
-        label_visibility="collapsed",
+        "Enter symptoms and region below. One click runs the full pipeline: triage analysis → facility matching → "
+        "multi-agent truth verification."
     )
     sym_col, reg_col = st.columns([3, 1])
     with sym_col:
