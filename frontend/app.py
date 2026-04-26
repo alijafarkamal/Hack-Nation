@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import csv
 import io
-import math
 import os
 import re
 import sys
@@ -29,14 +28,15 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 try:
-    import pyvista as _pv  # type: ignore[import-not-found]
-    from stpyvista import stpyvista as _stpyvista_main  # type: ignore[import-not-found]
+    from streamlit_agraph import agraph, Config, Edge, Node  # type: ignore[import-not-found]
 
-    _PYVISTA_AVAILABLE: bool = True
+    _AGRAPH_AVAILABLE: bool = True
 except Exception:  # pragma: no cover
-    _pv = None
-    _stpyvista_main = None
-    _PYVISTA_AVAILABLE = False
+    agraph = None  # type: ignore[assignment, misc]
+    Config = None  # type: ignore[assignment, misc, misc]
+    Edge = None  # type: ignore[assignment, misc, misc]
+    Node = None  # type: ignore[assignment, misc, misc]
+    _AGRAPH_AVAILABLE = False
 
 import api_client
 from map_component import (
@@ -1526,143 +1526,75 @@ def _build_architecture_graph() -> dict[str, list]:
     return {"nodes": _nodes, "links": _links}
 
 
-def _layout_architecture_positions(gdata: dict[str, Any]) -> dict[str, tuple[float, float, float]]:
-    """Deterministic 3D layout (Y-up): user at bottom, synthesis hub, Databricks ring, UI top."""
-    r: float = 2.0
-    p: dict[str, tuple[float, float, float]] = {
-        "user": (0.0, -2.6, 0.0),
-        "super": (0.0, -1.2, 0.0),
-        "synth": (0.0, 0.35, 0.0),
-        "mflow": (-1.6, 0.2, 1.1),
-    }
-    agents = [("sql", 0), ("vec", 1), ("idp", 2), ("trust", 3), ("geo", 4)]
-    for i, (nid, _) in enumerate(agents):
-        ang = 2 * math.pi * i / 5.0
-        p[nid] = (r * math.cos(ang), -0.15, r * math.sin(ang))
-    dbs = [("genie", 0), ("vidx", 1), ("mserve", 2), ("ucat", 3)]
-    for i, (nid, _) in enumerate(dbs):
-        ang = 2 * math.pi * i / 4.0 + 0.25
-        p[nid] = (1.25 * r * math.cos(ang), -0.7, 1.25 * r * math.sin(ang))
-    ui_angles = [("triage", 0.0), ("dmap", 2 * math.pi / 3), ("plan", 4 * math.pi / 3)]
-    for nid, ang in ui_angles:
-        p[nid] = (0.7 * r * math.cos(ang), 1.6, 0.7 * r * math.sin(ang))
-    p["ref"] = (0.0, 2.3, 0.0)
-    # Ensure every node in graph has a position
-    out: dict[str, tuple[float, float, float]] = {}
-    for n in gdata.get("nodes") or []:
-        nid = str(n.get("id", ""))
-        out[nid] = p.get(nid, (0.0, 0.0, 0.0))
-    return out
-
-
-def _render_architecture_plotly(gdata: dict[str, Any], pos: dict[str, tuple[float, float, float]]) -> None:
-    """Plotly 3D network — always works in Streamlit Cloud (reliable WebGL in plotly)."""
-    nodes = gdata.get("nodes") or []
-    links = gdata.get("links") or []
-    ex: list[float | None] = []
-    ey: list[float | None] = []
-    ez: list[float | None] = []
-    for l in links:
-        s, t = l.get("source", ""), l.get("target", "")
-        if s not in pos or t not in pos:
-            continue
-        x0, y0, z0 = pos[s]
-        x1, y1, z1 = pos[t]
-        ex += [x0, x1, None]
-        ey += [y0, y1, None]
-        ez += [z0, z1, None]
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter3d(
-            x=ex, y=ey, z=ez, mode="lines", line={"color": "rgba(148,163,184,0.55)", "width": 2},
-            hoverinfo="skip", showlegend=False,
-        )
-    )
-    if nodes:
-        fig.add_trace(
-            go.Scatter3d(
-                x=[pos[n["id"]][0] for n in nodes if n.get("id") in pos],
-                y=[pos[n["id"]][1] for n in nodes if n.get("id") in pos],
-                z=[pos[n["id"]][2] for n in nodes if n.get("id") in pos],
-                mode="markers",
-                marker={
-                    "size": [4 + 1.4 * int(n.get("val", 4) or 4) for n in nodes if n.get("id") in pos],
-                    "color": [n.get("color", "#94a3b8") for n in nodes if n.get("id") in pos],
-                    "line": {"width": 0.5, "color": "rgba(255,255,255,0.35)"},
-                },
-                text=[n.get("name", "") for n in nodes if n.get("id") in pos],
-                hovertemplate="%{text}<extra></extra>",
-                name="",
-                showlegend=False,
-            )
-        )
-    fig.update_layout(
-        template="plotly_dark", height=650, margin={"l": 0, "r": 0, "t": 8, "b": 0},
-        scene={
-            "bgcolor": "#0a0a0a",
-            "xaxis": {"showgrid": False, "zeroline": False, "showticklabels": False, "title": ""},
-            "yaxis": {"showgrid": False, "zeroline": False, "showticklabels": False, "title": ""},
-            "zaxis": {"showgrid": False, "zeroline": False, "showticklabels": False, "title": ""},
-            "camera": {"eye": {"x": 1.55, "y": 0.4, "z": 1.35}, "center": {"x": 0, "y": 0, "z": 0}},
-        },
-    )
-    st.plotly_chart(fig, use_container_width=True, key="arch_plotly_3d")
-
-
-def _try_render_architecture_pyvista(gdata: dict[str, Any], pos: dict[str, tuple[float, float, float]]) -> bool:
-    """Return True if stpyvista render succeeded. On failure, caller may use Plotly."""
-    if not _PYVISTA_AVAILABLE or _pv is None or _stpyvista_main is None:
+def _render_architecture_agraph(gdata: dict[str, Any]) -> bool:
+    """Interactive graph via streamlit-agraph (vis.js, 2D canvas—no WebGL in browser for Plotly-3D). Returns True on success."""
+    if not _AGRAPH_AVAILABLE or agraph is None or Config is None or Node is None or Edge is None:
         return False
     try:
-        try:
-            from stpyvista.utils import start_xvfb  # type: ignore[import-not-found]
-
-            if st.session_state.get("stpyvista_xvfb") is not True:
-                start_xvfb()  # headless / cloud-friendly virtual framebuffer
-                st.session_state.stpyvista_xvfb = True
-        except Exception:  # pragma: no cover
-            pass
-        pl = _pv.Plotter(window_size=(900, 640))
-        pl.set_background("black", top="0a0a0a", bottom="0a0a0a")
+        ar_nodes: list[Any] = []
+        for n in gdata.get("nodes") or []:
+            nid = str(n.get("id", ""))
+            label = str(n.get("name", nid))[:64]
+            tit = str(n.get("name", nid))
+            sz = min(12 + 2 * int(n.get("val", 4) or 4), 40)
+            ar_nodes.append(
+                Node(
+                    id=nid,
+                    label=label,
+                    title=tit,
+                    color=n.get("color", "#94a3b8"),
+                    size=sz,
+                    shape="dot",
+                )
+            )
+        ar_edges: list[Any] = []
         for l in gdata.get("links") or []:
             s, t = l.get("source", ""), l.get("target", "")
-            if s not in pos or t not in pos:
-                continue
-            line = _pv.Line(pos[s], pos[t])
-            tube = line.tube(radius=0.05)
-            pl.add_mesh(tube, color=(0.45, 0.52, 0.62), opacity=0.5, smooth_shading=True, show_edges=False)
-        for n in gdata.get("nodes") or []:
-            nid = n.get("id")
-            if not nid or nid not in pos:
-                continue
-            c = n.get("color", "#94a3b8")
-            rad = 0.11 + 0.028 * int(n.get("val", 4) or 4)
-            sph = _pv.Sphere(radius=rad, center=pos[str(nid)], theta_resolution=28, phi_resolution=28)
-            pl.add_mesh(sph, color=c, specular=0.45, specular_power=18, smooth_shading=True, show_edges=False)
-        try:  # camera / axes APIs vary by PyVista/VTK
-            pl.view_isometric()  # type: ignore[union-attr]
-        except Exception:  # pragma: no cover
-            pl.reset_camera()  # type: ignore[union-attr]
-        try:
-            pl.add_axes(line_width=1.5, color="gray", interactive=False)  # type: ignore[union-attr]
-        except Exception:  # pragma: no cover
-            pass
-        try:
-            _stpyvista_main(pl, key="cc_architecture_pyvista")
-        except TypeError:  # older stpyvista without key=
-            _stpyvista_main(pl)
+            if s and t:
+                ar_edges.append(Edge(source=str(s), target=str(t), color="#94a3b8", width=1.2))
+        cfg = Config(
+            width=1000,
+            height=620,
+            directed=True,
+            physics=True,
+            hierarchical=False,
+            # Pass-through to vis-network (Config merges into JSON for the custom component)
+            background={"color": "#0a0a0a"},
+            nodes={
+                "font": {"color": "#e2e8f0", "size": 11, "face": "arial"},
+                "borderWidth": 0,
+                "shadow": {"enabled": True, "color": "rgba(0,0,0,0.4)", "size": 6},
+            },
+            edges={
+                "arrows": {"to": {"enabled": True, "scaleFactor": 0.4}},
+                "color": {"color": "rgba(148,163,184,0.7)"},
+                "smooth": {"type": "continuous", "roundness": 0.2},
+            },
+        )
+        agraph(ar_nodes, ar_edges, config=cfg, key="cc_system_arch_agraph")
         return True
-    except Exception:
+    except Exception:  # pragma: no cover
         return False
+
+
+def _architecture_graph_text_fallback(gdata: dict[str, Any]) -> None:
+    st.warning("Could not load the **streamlit-agraph** graph. Add `streamlit-agraph` to your environment, or use the list below.")
+    nlines = [f"- **{n.get('id', '')}** — {n.get('name', '')}" for n in (gdata.get("nodes") or [])]
+    elines = [f"- `{e.get('source', '')}` → `{e.get('target', '')}`" for e in (gdata.get("links") or [])]
+    st.markdown("**Nodes**\n" + "\n".join(nlines))
+    st.markdown("**Links**\n" + "\n".join(elines))
+    parts = [f"  {a} --> {b}" for a, b in [(e.get("source", ""), e.get("target", "")) for e in (gdata.get("links") or [])] if a and b]
+    if parts:
+        st.code("flowchart LR\n" + "\n".join(parts), language="mermaid")
 
 
 def _tab_architecture() -> None:
-    """3D system architecture: PyVista (primary) with Plotly fallback for Streamlit Cloud compatibility."""
-    st.markdown("### System Architecture — 3D Graph Methodology")
+    """System architecture: interactive force graph (streamlit-agraph / vis.js). No Neo4j required for this static diagram."""
+    st.markdown("### System Architecture — Graph Methodology")
     st.caption(
         "LangGraph fan-out, Databricks services, and product surfaces. "
-        "Primary view uses PyVista; Plotly 3D is used if WebGL/headless display is unavailable. "
-        "(Illustrative topology — not a live Neo4j query.)"
+        "Interactive 2D graph (vis.js via streamlit-agraph) — no WebGL requirement like Plotly 3D. "
+        "Illustrative static topology, not a live Neo4j / graph database."
     )
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Agent nodes", "7")
@@ -1683,14 +1615,11 @@ def _tab_architecture() -> None:
         unsafe_allow_html=True,
     )
     gdata = _build_architecture_graph()
-    positions = _layout_architecture_positions(gdata)
-    ok = _try_render_architecture_pyvista(gdata, positions)
+    ok = _render_architecture_agraph(gdata)
     if ok:
-        st.caption("Drag to rotate; scroll to zoom. (PyVista / VTK WebGL embed.)")
+        st.caption("Drag nodes, scroll to zoom, hover for full labels. Physics stabilizes the layout on load.")
     else:
-        st.info("Showing **Plotly 3D** (compatibility mode). PyVista could not render in this environment.")
-        _render_architecture_plotly(gdata, positions)
-        st.caption("Drag to rotate; scroll to zoom.")
+        _architecture_graph_text_fallback(gdata)
 
 
 # ── Tab 1: Triage & Matching ────────────────────────────────────────────────

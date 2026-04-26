@@ -98,11 +98,11 @@ For facilities with missing data (phone, hours, website), the enrichment agent:
 - **View Agent Logic** (expander on match results): Chronological **thought trace** built from the same `synthesis_artifacts` + `trust_artifacts` JSON the backend returns (source merge, confidence, per-facility trust counts, flags/disagreements, MLflow **correlation id**). Not a full span tree, but a judge-friendly trace narrative.
 - **Why CareCompass is agentic** (expandable on Triage): Short checklist (LangGraph, MLflow, Wilson intervals, two-pass truth verification, policy analytics).
 
-## System Architecture tab (3D graph methodology)
+## System Architecture tab (graph methodology)
 
-- **Primary:** **PyVista + stpyvista** — colored spheres and tubes in a dark scene (VTK / WebGL embed). On headless hosts, `stpyvista.utils.start_xvfb` is used when available.
-- **Fallback:** **Plotly `Scatter3d`** — same node positions and edges if PyVista cannot render (typical on some Streamlit Cloud builds). You should always see a 3D chart, not a blank panel.
-- Static **topology** illustration (not a live Neo4j query).
+- **streamlit-agraph** (vis.js) — interactive **2D** force-directed graph: drag nodes, zoom, dark background, colored nodes by role. Renders in canvas/SVG (no WebGL in the **browser**), so it works when Plotly 3D / WebGL is blocked.
+- If `streamlit-agraph` is not installed, a **text + Mermaid** fallback lists nodes and links.
+- Static **topology** illustration (not a live **Neo4j** database; Neo4j is for storing live graph *data*—here we only need a one-shot diagram of the app architecture).
 
 ## Deployment
 
