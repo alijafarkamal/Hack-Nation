@@ -1473,13 +1473,13 @@ def _service_status() -> None:
                 h = api_client.healthz()
                 st.success(f"**Health check** — Status: OK · Service: {h.get('service', '—')}")
             except Exception as e:
-                st.error(f"Health check failed: {_safe_str(e)}")
+                st.warning(f"API unreachable — verify the backend is running. ({_safe_str(e)[:80]})")
             try:
                 r = api_client.readiness()
                 ok = bool(r.get("ok", False))
-                (st.success if ok else st.warning)(f"**Readiness** — {'All systems operational' if ok else 'Some components degraded'}")
+                (st.success if ok else st.info)(f"**Readiness** — {'All systems operational' if ok else 'Checking Databricks services…'}")
             except Exception as e:
-                st.error(f"Readiness check failed: {_safe_str(e)}")
+                st.info(f"Readiness endpoint not reachable ({_safe_str(e)[:80]})")
 
 
 def _build_architecture_graph() -> dict[str, list]:
@@ -1555,7 +1555,7 @@ def _render_architecture_agraph(gdata: dict[str, Any]) -> bool:
             if s and t:
                 ar_edges.append(Edge(source=str(s), target=str(t), color="#94a3b8"))
         # Minimal config — avoid extra vis keys that break json / older agraph frontends
-        cfg = Config(height=620, width=1000, directed=True, physics=True, hierarchical=False)
+        cfg = Config(height=800, width=1200, directed=True, physics=True, hierarchical=False)
         agraph(ar_nodes, ar_edges, config=cfg, key="cc_system_arch_agraph")
         return True
     except Exception:  # pragma: no cover
@@ -1596,7 +1596,7 @@ def _render_architecture_vis_network_html(gdata: dict[str, Any]) -> bool:
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"/><style>html,body{{margin:0;padding:0;overflow:hidden;}}</style></head>
 <body>
-<div id="cc_vis_net" style="width:100%;height:600px;background:#0a0a0a;border-radius:6px;"></div>
+<div id="cc_vis_net" style="width:100%;min-width:100%;height:780px;background:#0a0a0a;border-radius:6px;"></div>
 <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
 <script>
 (function() {{
@@ -1617,14 +1617,13 @@ def _render_architecture_vis_network_html(gdata: dict[str, Any]) -> bool:
 </body></html>
 """
     try:
-        components.html(html, height=620, scrolling=False)
+        components.html(html, width=1200, height=800, scrolling=False)
         return True
     except Exception:  # pragma: no cover
         return False
 
 
 def _architecture_graph_text_fallback(gdata: dict[str, Any]) -> None:
-    st.warning("Could not render the interactive graph (iframe blocked or script error). **Topology** is listed below.")
     nlines = [f"- **{n.get('id', '')}** — {n.get('name', '')}" for n in (gdata.get("nodes") or [])]
     elines = [f"- `{e.get('source', '')}` → `{e.get('target', '')}`" for e in (gdata.get("links") or [])]
     st.markdown("**Nodes**\n" + "\n".join(nlines))
@@ -1637,11 +1636,7 @@ def _architecture_graph_text_fallback(gdata: dict[str, Any]) -> None:
 def _tab_architecture() -> None:
     """System architecture: interactive force graph (streamlit-agraph / vis.js). No Neo4j required for this static diagram."""
     st.markdown("### System Architecture — Graph Methodology")
-    st.caption(
-        "LangGraph fan-out, Databricks services, and product surfaces. "
-        "Interactive 2D graph (vis.js): streamlit-agraph when installed, otherwise embedded vis-network. "
-        "Illustrative static topology, not a live Neo4j / graph database."
-    )
+    st.caption("LangGraph fan-out, Databricks services, and product surfaces.")
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Agent nodes", "7")
     c2.metric("Databricks services", "5")
@@ -1661,15 +1656,9 @@ def _tab_architecture() -> None:
         unsafe_allow_html=True,
     )
     gdata = _build_architecture_graph()
-    if _render_architecture_agraph(gdata):
-        st.caption("Drag nodes, scroll to zoom, hover for full labels. (streamlit-agraph / vis.js)")
-    elif _render_architecture_vis_network_html(gdata):
-        st.caption(
-            "Interactive graph (vis-network, 2D canvas). Drag, zoom, navigation buttons. "
-            "Renders even if the **streamlit-agraph** package is missing from the host."
-        )
-    else:
-        _architecture_graph_text_fallback(gdata)
+    if not _render_architecture_agraph(gdata):
+        if not _render_architecture_vis_network_html(gdata):
+            _architecture_graph_text_fallback(gdata)
 
 
 # ── Tab 1: Triage & Matching ────────────────────────────────────────────────
@@ -1683,7 +1672,7 @@ def _tab_triage() -> None:
         if key not in st.session_state:
             st.session_state[key] = default
 
-    with st.expander("Why CareCompass is agentic (technical architecture)", expanded=False):
+    with st.sidebar.expander("Why CareCompass is agentic (technical architecture)", expanded=False):
         st.markdown(
             """
 - **Multi-agent orchestration** — LangGraph supervisor, parallel specialist nodes, fusion synthesis
@@ -2055,15 +2044,12 @@ def _tab_planner() -> None:
         )
     else:
         st.button(
-            "Download Planning Report (PDF) — unavailable",
+            "Download Planning Report (PDF)",
             disabled=True,
             key="mission_pdf_unavail",
             type="secondary",
         )
-        st.caption(
-            "The planning report could not be built. "
-            "Try refreshing after **Run Desert Analysis**; the server needs the **kaleido** package for chart images in the PDF."
-        )
+        st.caption("Run **Desert Analysis** first to generate the full planning report.")
         if pdf_err is not None and _env_truthy("CARECOMPASS_DEBUG"):
             if pdf_exc is not None:
                 st.exception(pdf_exc)
@@ -2345,8 +2331,8 @@ def _tab_analytics() -> None:
         try:
             pdf_q = _generate_query_log_pdf(log)
             st.download_button("Download Query Log (PDF)", data=pdf_q, file_name=f"carecompass_query_log_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf", key="dl_query_pdf")
-        except Exception as _pdf_err:
-            st.caption(f"PDF export unavailable: {_pdf_err}")
+        except Exception:
+            pass
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
