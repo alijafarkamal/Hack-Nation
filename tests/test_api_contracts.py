@@ -112,6 +112,24 @@ def test_enrichment_503_without_tavily(_mock_tavily):
     assert r.status_code == 503
 
 
+
+
+@mock.patch("backend_api.main.readiness_service.readiness_report")
+def test_readiness_endpoint(mock_ready):
+    from backend_api.main import app
+
+    mock_ready.return_value = {
+        "ok": False,
+        "status": "degraded",
+        "degraded_components": ["vector_search_ping"],
+        "checks": [],
+    }
+    c = TestClient(app)
+    r = c.get("/readiness")
+    assert r.status_code == 200
+    j = r.json()
+    assert "status" in j and "degraded_components" in j
+
 def test_geospatial_desert_pins_unit():
     from src.nodes.geospatial import find_desert_pins, find_desert_states
 

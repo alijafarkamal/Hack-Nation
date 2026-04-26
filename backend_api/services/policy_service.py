@@ -10,11 +10,14 @@ from src.nodes.geospatial import _run_facility_sql, find_desert_pins, find_deser
 from src.utils.confidence import wilson_w_interval
 
 
+_ARTIFACT_FILTER = "trust_flag != 'ARTIFACT'"
+
+
 def _list_facilities_minimal() -> list[dict]:
     return _run_facility_sql(
         f"SELECT name, state_normalized, pin_code, specialties, trust_score, trust_flag, "
         f"procedure, equipment, capability "
-        f"FROM {TABLE_FACILITIES} WHERE state_normalized IS NOT NULL"
+        f"FROM {TABLE_FACILITIES} WHERE state_normalized IS NOT NULL AND {_ARTIFACT_FILTER}"
     )
 
 
@@ -81,7 +84,7 @@ def get_pin_risk(pin_code: str, correlation_id: str) -> dict[str, Any]:
     rows = _run_facility_sql(
         f"SELECT name, state_normalized, pin_code, trust_score, trust_flag, "
         f"specialties, procedure, equipment, capability "
-        f"FROM {TABLE_FACILITIES} WHERE pin_code = '{pin}' LIMIT 200"
+        f"FROM {TABLE_FACILITIES} WHERE pin_code = '{pin}' AND {_ARTIFACT_FILTER} LIMIT 200"
     )
     n = len(rows or [])
     k_high = 0

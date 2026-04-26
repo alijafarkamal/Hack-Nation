@@ -135,6 +135,11 @@ def _run_facility_sql(sql: str) -> list[dict]:
     return [dict(zip(cols, row)) for row in rows]
 
 
+# Exclude CSV-parsing artifact rows (trust_flag set to 'ARTIFACT' in the cleaning notebook).
+# Also applied to real facilities accidentally having trust_flag IS NULL (safe: NULL != 'ARTIFACT').
+_ARTIFACT_FILTER = "trust_flag != 'ARTIFACT'"
+
+
 GEO_PARSE_PROMPT = """Extract geographic parameters for Indian facility queries.
 Return JSON only (no markdown):
 {
@@ -178,7 +183,7 @@ def geospatial_node(state: AgentState) -> dict:
         fac = _run_facility_sql(
             f"SELECT name, state_normalized, pin_code, specialties, trust_score, trust_flag, "
             f"latitude, longitude "
-            f"FROM {TABLE_FACILITIES} WHERE state_normalized IS NOT NULL"
+            f"FROM {TABLE_FACILITIES} WHERE state_normalized IS NOT NULL AND {_ARTIFACT_FILTER}"
         )
         deserts = find_desert_states(fac, specialty)
         desert_pins = find_desert_pins(fac, specialty)
@@ -263,7 +268,7 @@ def geospatial_node(state: AgentState) -> dict:
             f"SELECT AVG(latitude) as clat, AVG(longitude) as clon "
             f"FROM {TABLE_FACILITIES} "
             f"WHERE lower(address_city) = lower('{safe_city}') "
-            f"AND latitude IS NOT NULL AND longitude IS NOT NULL"
+            f"AND latitude IS NOT NULL AND longitude IS NOT NULL AND {_ARTIFACT_FILTER}"
         )
         if not center_rows or center_rows[0].get("clat") is None:
             result["message"] = f"Could not estimate coordinates for city '{city}' from data."
@@ -272,7 +277,7 @@ def geospatial_node(state: AgentState) -> dict:
             all_f = _run_facility_sql(
                 f"SELECT name, address_city, state_normalized, pin_code, facilityTypeId, "
                 f"specialties, latitude, longitude FROM {TABLE_FACILITIES} "
-                f"WHERE latitude IS NOT NULL AND longitude IS NOT NULL"
+                f"WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND {_ARTIFACT_FILTER}"
             )
             nearby = find_facilities_within_radius(all_f, clat, clon, float(radius_km))
             result["center"] = {"city": city, "lat": clat, "lon": clon}
@@ -284,7 +289,7 @@ def geospatial_node(state: AgentState) -> dict:
         pr = _run_facility_sql(
             f"SELECT name, address_city, state_normalized, pin_code, trust_score, trust_flag, "
             f"specialties, latitude, longitude FROM {TABLE_FACILITIES} "
-            f"WHERE pin_code = '{pin}' LIMIT 50"
+            f"WHERE pin_code = '{pin}' AND {_ARTIFACT_FILTER} LIMIT 50"
         )
         result["pin"] = pin
         result["facilities_in_pin"] = pr
@@ -294,7 +299,7 @@ def geospatial_node(state: AgentState) -> dict:
         rows = _run_facility_sql(
             f"SELECT state_normalized, facilityTypeId, COUNT(*) as cnt "
             f"FROM {TABLE_FACILITIES} "
-            f"WHERE state_normalized IS NOT NULL "
+            f"WHERE state_normalized IS NOT NULL AND {_ARTIFACT_FILTER} "
             f"GROUP BY state_normalized, facilityTypeId ORDER BY cnt DESC LIMIT 50"
         )
         result["coverage_data"] = rows

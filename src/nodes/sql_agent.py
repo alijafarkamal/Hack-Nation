@@ -14,7 +14,9 @@ from src.utils.confidence import completeness_penalty, ratio_dict
 
 log = logging.getLogger(__name__)
 
-_DETAIL_COLS = f"name, state_normalized, facilityTypeId, address_city"
+_DETAIL_COLS = "name, state_normalized, facilityTypeId, address_city"
+# Exclude CSV-parsing artifacts (rows where trust_flag = 'ARTIFACT' from the cleaning notebook).
+_ARTIFACT_FILTER = "trust_flag != 'ARTIFACT'"
 
 
 def _fill_state(row: list[str]) -> list[str]:
@@ -57,6 +59,17 @@ def _rewrite_count_to_select(sql: str) -> str | None:
         return None
     rewritten = pattern.sub(f"SELECT {_DETAIL_COLS} FROM", sql, count=1)
     rewritten = re.sub(r"\bORDER\s+BY\s+.*$", "", rewritten, flags=re.IGNORECASE)
+    # Inject artifact filter into WHERE clause
+    if re.search(r"\bWHERE\b", rewritten, re.IGNORECASE):
+        rewritten = re.sub(
+            r"\bWHERE\b",
+            f"WHERE {_ARTIFACT_FILTER} AND",
+            rewritten,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    else:
+        rewritten = rewritten.rstrip().rstrip(";") + f" WHERE {_ARTIFACT_FILTER}"
     if "LIMIT" not in rewritten.upper():
         rewritten = rewritten.rstrip().rstrip(";") + " LIMIT 30"
     return rewritten
@@ -112,7 +125,8 @@ def sql_agent_node(state: AgentState) -> dict:
             try:
                 detail_query = (
                     f"List the names, states (state_normalized), and facility types "
-                    f"from {TABLE_FACILITIES} for: {state['query']}"
+                    f"from {TABLE_FACILITIES} (excluding artifact rows where trust_flag = 'ARTIFACT') "
+                    f"for: {state['query']}"
                 )
                 dr = query_genie(detail_query)
                 if dr.get("data"):

@@ -25,6 +25,8 @@ class TriageSessionResponse(BaseModel):
     graph_summary: str | None = None
     correlation_id: str = ""
     citations: list[dict] = []
+    degraded_components: list[str] = []
+    warnings: list[str] = []
 
 
 class TriageMatchRequest(BaseModel):

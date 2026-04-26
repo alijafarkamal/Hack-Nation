@@ -235,5 +235,7 @@ def synthesis_node(state: AgentState) -> dict:
     return {
         "final_answer": am,
         "synthesis_artifacts": syn_art,
+        "degraded_components": degraded,
+        "warnings": warnings,
         "citations": cits,
     }

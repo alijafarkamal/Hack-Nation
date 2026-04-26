@@ -66,6 +66,8 @@ def run_triage_session(symptoms_text: str, correlation_id: str) -> dict[str, Any
         "capabilities_needed": caps,
         "red_flags": rf,
         "graph": graph_out,
+        "degraded_components": graph_out.get("degraded_components", []),
+        "warnings": graph_out.get("warnings", []),
     }
 
 
@@ -104,4 +106,6 @@ def match_facilities_for_session(
         **g,
         "safety_disclaimer": _SAFETY,
         "graph_summary": (g.get("final_answer") or "")[:20000] or None,
+        "degraded_components": g.get("degraded_components", []),
+        "warnings": g.get("warnings", []),
     }

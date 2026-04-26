@@ -9,7 +9,7 @@ import mlflow
 from src.citations import normalize_citation
 from src.state import AgentState
 from src.tools.model_serving_tool import query_llm
-from src.tools.vector_search_tool import query_vector_search
+from src.tools.vector_search_tool import get_vector_search_status, query_vector_search
 from src.utils.trust_rules import facility_dict_to_trust
 
 EXTRACTOR_PROMPT = """You are Pass 1 — a fact extractor for Indian healthcare facilities (CareCompass).
@@ -119,6 +119,7 @@ def _merge_row(
 def trust_scorer_node(state: AgentState) -> dict:
     corr = (state.get("correlation_id") or "") or ""
     facilities = query_vector_search(state["query"], num_results=15)
+    vs = get_vector_search_status()
     determ = [facility_dict_to_trust(f) for f in facilities if isinstance(f, dict)]
 
     payload = json.dumps(facilities, default=str, indent=2)[:50000]
@@ -213,11 +214,22 @@ def trust_scorer_node(state: AgentState) -> dict:
             "correlation_id": corr,
         }
     )
-    return {
+    out = {
         "trust_result": analysis,
         "trust_artifacts": artifacts,
         "citations": cits,
     }
+    if not vs.get("ok"):
+        out["degraded_components"] = vs.get("degraded_components", [])
+        out["warnings"] = [vs.get("warning")] if vs.get("warning") else []
+        out["citations"].append({
+            "source": "vector_search",
+            "field": "degradation",
+            "evidence_snippet": str(vs.get("warning") or vs.get("error") or "vector search unavailable"),
+            "confidence": 0.2,
+            "correlation_id": corr,
+        })
+    return out
 
 
 def _top_reasons(rows: list[dict], n: int) -> list[dict]:

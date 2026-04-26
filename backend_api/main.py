@@ -16,7 +16,7 @@ from backend_api.schemas import (
     TriageSessionResponse,
 )
 from backend_api.routes import enrichment, referral
-from backend_api.services import policy_service, triage_service
+from backend_api.services import policy_service, readiness_service, triage_service
 
 app = FastAPI(
     title="CareCompass API",
@@ -47,6 +47,12 @@ def healthz() -> dict:
     }
 
 
+
+
+@app.get("/readiness")
+def readiness() -> dict:
+    return readiness_service.readiness_report()
+
 @app.post("/triage/analyze", response_model=TriageSessionResponse)
 def triage_analyze(request: Request, body: TriageAnalyzeRequest) -> TriageSessionResponse:
     cor = _cid(request)
@@ -61,6 +67,8 @@ def triage_analyze(request: Request, body: TriageAnalyzeRequest) -> TriageSessio
         graph_summary=(g.get("final_answer") or "")[:20000] or None,
         correlation_id=str(g.get("correlation_id", cor) or cor),
         citations=(g.get("citations") or []),
+        degraded_components=list(g.get("degraded_components") or []),
+        warnings=list(g.get("warnings") or []),
     )
 
 
@@ -79,6 +87,8 @@ def triage_get(request: Request, session_id: str) -> TriageSessionResponse:
         graph_summary=None,
         correlation_id=cor,
         citations=[],
+        degraded_components=[],
+        warnings=[],
     )
 
 

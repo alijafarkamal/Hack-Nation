@@ -7,7 +7,7 @@ import mlflow
 
 from src.state import AgentState
 from src.tools.model_serving_tool import query_llm
-from src.tools.vector_search_tool import query_vector_search
+from src.tools.vector_search_tool import get_vector_search_status, query_vector_search
 
 IDP_EXTRACTION_PROMPT = """You are a medical facility information extractor for Indian facilities.
 
@@ -55,6 +55,7 @@ def _try_parse_idp(s: str) -> dict | None:
 def idp_extraction_node(state: AgentState) -> dict:
     corr = (state.get("correlation_id") or "") or ""
     raw_facilities = query_vector_search(state["query"], num_results=5)
+    vs = get_vector_search_status()
     extractions: list[str] = []
     parsed_rows: list[dict] = []
     for facility in raw_facilities:
@@ -66,7 +67,7 @@ def idp_extraction_node(state: AgentState) -> dict:
         if pr:
             pr["_facility_source_name"] = facility.get("name", "") if isinstance(facility, dict) else ""
             parsed_rows.append(pr)
-    return {
+    out = {
         "extraction_result": {
             "query": state["query"],
             "extractions": extractions,
@@ -82,3 +83,14 @@ def idp_extraction_node(state: AgentState) -> dict:
             }
         ],
     }
+    if not vs.get("ok"):
+        out["degraded_components"] = vs.get("degraded_components", [])
+        out["warnings"] = [vs.get("warning")] if vs.get("warning") else []
+        out["citations"].append({
+            "source": "vector_search",
+            "field": "degradation",
+            "evidence_snippet": str(vs.get("warning") or vs.get("error") or "vector search unavailable"),
+            "confidence": 0.2,
+            "correlation_id": corr,
+        })
+    return out
