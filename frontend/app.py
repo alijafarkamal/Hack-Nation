@@ -1676,11 +1676,12 @@ def _tab_triage() -> None:
     with st.sidebar.expander("Why CareCompass is agentic (technical architecture)", expanded=False):
         st.markdown(
             """
-- **Multi-agent orchestration** — LangGraph supervisor, parallel specialist nodes, fusion synthesis
-- **MLflow 3 observability** — Traced API/graph runs; correlation id surfaced after each match
-- **Wilson confidence scoring** — Medical desert and PIN risk use prediction-style intervals
-- **Two-pass truth verification** — Extractor vs validator + rules (addressing the “truth gap”)
-- **Medical desert & policy analytics** — Coverage heatmaps, mission planner, public-health query log
+- **LangGraph `StateGraph` true parallel fan-out** — `add_conditional_edges` dispatches up to 2 specialist nodes simultaneously; real concurrent execution, not sequential chains
+- **7 `@mlflow.trace` agent spans** — Supervisor · SQL · RAG · IDP · Trust · Geo · Synthesis; UUID4 `correlation_id` via `ContextVar` flows HTTP header → AgentState → every MLflow span tag → Databricks UI
+- **Three-layer adversarial Trust Pipeline** — 4 deterministic medical rules (score ×0.65–0.85) → Extractor LLM Pass 1 (`uncertainty_0_1`) → Validator LLM Pass 2; combined = `0.45×det + 0.35×val + 0.20×(1−uncertainty)`; disagreement penalty ×0.85
+- **`Annotated[list, operator.add]` citation reducer** — parallel branches append atomically to shared list; zero race conditions across fan-out branches
+- **Wilson Score CI over 9,866 PIN codes** — every desert proportion returns `point · low_95 · high_95`; sparse regions get honest uncertainty bands, not false precision
+- **10,002 facilities · 41 columns · 5 Databricks services** — Genie Text-to-SQL · gte-large-en Vector Search · Qwen 3 80B Model Serving · Unity Catalog Delta · MLflow 3
             """.strip()
         )
 
