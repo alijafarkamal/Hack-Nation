@@ -1,0 +1,14 @@
+# Render Blueprint (FastAPI). Add secrets (DATABRICKS_*, etc.) in the Render dashboard.
+# Streamlit: deploy `frontend/app.py` on Streamlit Community Cloud with
+#   CARECOMPASS_API_URL = https://<this-service>.onrender.com
+#
+# If Blueprint validation fails, create the Web Service manually and use the Procfile.
+
+services:
+  - type: web
+    name: carecompass-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend_api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz

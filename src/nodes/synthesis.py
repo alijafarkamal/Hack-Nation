@@ -179,6 +179,8 @@ def synthesis_node(state: AgentState) -> dict:
     user_query = state["query"]
     agents_used = _active_agents(state)
     corr = (state.get("correlation_id") or "") or ""
+    degraded = list(state.get("degraded_components") or [])
+    warnings = list(state.get("warnings") or [])
     prompt_input = f"User question: {user_query}\n\nAgent results:\n{context}"
     raw = query_llm(SYNTHESIS_JSON_PROMPT, prompt_input, max_tokens=2048)
     parsed = _parse_synthesis_json(raw)

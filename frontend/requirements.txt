@@ -1,0 +1,8 @@
+# CareCompass India — Streamlit UI (FastAPI client)
+streamlit>=1.45
+streamlit-folium>=0.25
+folium>=0.18
+plotly>=6.0
+fpdf2>=2.8
+requests>=2.32
+pandas>=2.2
