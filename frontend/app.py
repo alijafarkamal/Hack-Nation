@@ -1651,6 +1651,11 @@ def _tab_intelligence() -> None:
     """Intelligence Engine — agentic architecture deep-dive and what was built beyond the brief."""
     st.markdown("### Intelligence Engine")
     st.caption("Technical architecture, agentic design decisions, and engineering scope beyond the challenge brief.")
+    st.caption(
+        "**Mapping vs truth score:** facility trust (this page) is the multi-agent + rules pipeline; "
+        "Wilson intervals and **desert** geography are **policy / statistics** on the data layer. "
+        "The **Desert Map** and **Query Analytics** tabs include an expander *How our mapping and truth / trust scores work* with the end-to-end story."
+    )
 
     col_a, col_b = st.columns(2, gap="large")
 
@@ -2279,8 +2284,52 @@ def _extract_trust_pins(mr: dict | None) -> list[dict]:
     return pins
 
 
+def _expander_mapping_and_truth_logic(*, for_tab: str = "map") -> None:
+    """User-facing explainer: geographic mapping vs facility truth score vs Wilson (policy stats)."""
+    with st.expander("How our mapping and truth / trust scores work", expanded=False):
+        st.markdown(
+            """
+**Two different “scores” (do not mix them up)**
+
+- **Facility truth / trust (Triage & Matching):** For each returned hospital, the **Trust Scorer** combines
+  (1) deterministic medical-consistency rules, (2) an **Extractor** LLM pass, and (3) a **Validator** LLM pass into a
+  **0–1 trust score** and a verdict: **VERIFIED · REVIEW · SUSPICIOUS**. This addresses the **“truth gap”** between
+  marketing text and what the record can actually support. Citations point to the exact sentences the score used.
+
+- **Policy / map statistics (Mission Planner, Desert Map, PIN risk):** We summarize **where** a chosen specialty
+  looks missing (desert **states** or **PINs**), using your Unity Catalog + Genie / policy pipeline. When sample sizes
+  are small, we surface **Wilson score confidence / prediction-style intervals** on proportions (e.g. share of
+  high-trust facilities in a PIN or desert share of PINs) — so the map and charts show **uncertainty**, not false
+  precision.
+
+**How the map is drawn (logic)**
+
+- **State level:** We place circles at **state centroids** (standard administrative anchors — gaps between icons are
+  geography, not “missing” states). A state is a **medical desert** for the selected specialty if the backend finds
+  **no verified in-scope coverage** there; other states are shown as **covered** (has facilities in our gold layer).
+- **Coverage Gap view:** Red emphasis + **desert heat** = where lack of access concentrates; green = at least one path
+  to in-scope care in the dataset.
+- **Specialty Hotspot view:** Blue heat = **where facilities mentioning that specialty concentrate** in the
+  data — a **supply / service-density proxy**, not disease prevalence. Use it to see capacity clustering vs deserts.
+- **Trust pins:** Colors reflect the **last triage run** on this device (verdict on each facility). They are
+  **illustrative positions** (coordinates or jittered state anchors), not a live national registry of every hospital.
+
+**Where to go next**
+
+- **Triage** — full per-facility trust breakdown and handoff. **Mission Planner** — Wilson and desert **tables /
+  charts** for a specialty. **Intelligence Engine** — agent architecture. This tab — **geographic** story + overlays.
+            """.strip()
+        )
+        if for_tab == "analytics":
+            st.caption(
+                "This tab only records *what* was queried (demand signal). The trust and map **formulas** live in Triage, "
+                "Mission Planner, Desert Map, and Intelligence Engine — not in last year’s query log alone."
+            )
+
+
 def _tab_map() -> None:
     st.markdown(f'<p class="disclaimer">{DISCLAIMER_POLICY}</p>', unsafe_allow_html=True)
+    _expander_mapping_and_truth_logic(for_tab="map")
 
     st.markdown('<div class="section-card"><h4>Medical Desert Intelligence Map</h4>', unsafe_allow_html=True)
 
@@ -2539,6 +2588,7 @@ to brief policymakers — turning user queries into an evidence-based resource a
 > **To populate this view:** run any triage query on the first tab, then return here.
         """.strip()
     )
+    _expander_mapping_and_truth_logic(for_tab="analytics")
     log = st.session_state.get("query_log") or []
     if not log:
         st.info("No queries logged yet. Run a triage analysis to start.")
