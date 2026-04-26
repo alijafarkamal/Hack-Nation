@@ -873,11 +873,9 @@ def _tab_triage() -> None:
             placeholder="e.g. Fever and difficulty breathing for 2 days; need emergency care",
         )
     with reg_col:
-        region = st.text_input(
-            "Region / State",
-            key="triage_region",
-            placeholder="e.g. Bihar",
-        )
+        _state_opts = ["Any state"] + sorted(INDIA_STATE_CENTROIDS.keys())
+        _region_sel = st.selectbox("Region / State", _state_opts, index=0, key="triage_region_sel")
+        region = "" if _region_sel == "Any state" else _region_sel
         top_k = st.slider("# Results", 1, 20, 10, key="triage_top_k")
     run_all = st.button("Analyze & Find Matching Facilities", type="primary", use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -1030,9 +1028,11 @@ def _tab_planner() -> None:
     with col_left:
         st.markdown('<div class="section-card"><h4>Medical Desert Finder</h4>', unsafe_allow_html=True)
         st.caption("Identify regions with zero facility coverage for a given specialty.")
-        spec = st.selectbox("Specialty", SPECIALTIES_DEFAULT, index=0)
-        custom = st.text_input("Or custom specialty", value="", label_visibility="collapsed", placeholder="Custom…")
-        use_spec = (custom or spec).strip()
+        _all_specs = SPECIALTIES_DEFAULT + ["dialysis", "trauma", "icu", "surgery", "dentistry", "psychiatry", "neonatology", "Custom…"]
+        spec = st.selectbox("Specialty", _all_specs, index=0, key="planner_spec_sel")
+        if spec == "Custom…":
+            spec = st.text_input("Enter specialty", key="planner_spec_custom", placeholder="e.g. neonatology") or "emergency"
+        use_spec = spec.strip()
         level = st.radio("Granularity", ["pin", "state"], horizontal=True, index=0)
         if st.button("Run Desert Analysis", type="primary", use_container_width=True):
             try:
@@ -1217,25 +1217,28 @@ def _tab_map() -> None:
 
     st.markdown('<div class="section-card"><h4>Medical Desert Heatmap</h4>', unsafe_allow_html=True)
     st.caption("Red circles = states with zero specialty coverage (medical desert). Green circles = states with confirmed coverage. Select a specialty and click Load.")
-    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    col1, col2, col3 = st.columns([2, 1, 2])
     with col1:
-        spec_choice = st.selectbox(
-            "Specialty",
-            ["emergency", "cardiology", "ophthalmology", "orthopedics",
-             "obgyn", "pediatrics", "oncology", "neurology", "dialysis",
-             "trauma", "icu", "surgery", "dentistry", "psychiatry", "Custom…"],
-            index=0, key="map_spec_sel",
-        )
+        _map_specs = ["emergency", "cardiology", "ophthalmology", "orthopedics",
+                      "obgyn", "pediatrics", "oncology", "neurology", "dialysis",
+                      "trauma", "icu", "surgery", "dentistry", "psychiatry", "neonatology", "Custom…"]
+        spec_choice = st.selectbox("Specialty", _map_specs, index=0, key="map_spec_sel")
         if spec_choice == "Custom…":
-            spec = st.text_input("Enter specialty", key="map_spec_custom", placeholder="e.g. neonatology")
+            spec = st.text_input("Enter specialty", key="map_spec_custom", placeholder="e.g. neonatology") or "emergency"
         else:
             spec = spec_choice
     with col2:
         level = st.radio("Level", ["state", "pin"], horizontal=True, key="map_lev")
     with col3:
-        region_q = st.text_input("Filter state", key="map_filt", placeholder="e.g. Bihar")
-    with col4:
-        st.markdown("")
+        _state_list = sorted(INDIA_STATE_CENTROIDS.keys())
+        region_sel = st.multiselect(
+            "Filter by state(s) — searchable",
+            options=_state_list,
+            default=[],
+            key="map_filt_states",
+            placeholder="Type to search states…",
+        )
+        region_q = region_sel  # list; empty = show all
     load_btn = st.button("Load Desert Heatmap", type="primary", key="map_load", use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1263,9 +1266,10 @@ def _tab_map() -> None:
     c_states: list[str] = sorted(all_known - set(d_states))
 
     if region_q:
-        q = region_q.lower()
-        d_states = [s for s in d_states if q in s.lower()]
-        c_states = [s for s in c_states if q in s.lower()]
+        # region_q is now a list from multiselect
+        sel_set = set(region_q)
+        d_states = [s for s in d_states if s in sel_set]
+        c_states = [s for s in c_states if s in sel_set]
 
     # Build overlay data
     desert_overlay = desert_states_from_names(d_states, specialty=loaded_spec)
@@ -1288,7 +1292,7 @@ def _tab_map() -> None:
         use_clustering=False,
     )
     # Dynamic key forces re-render when specialty or desert list changes
-    map_key = f"map_{loaded_spec}_{len(d_states)}_{region_q}"
+    map_key = f"map_{loaded_spec}_{len(d_states)}_{'_'.join(sorted(region_q)) if isinstance(region_q, list) else region_q}"
     st_folium(fmap, key=map_key, width=None, height=680, use_container_width=True)
 
     # Metrics row
