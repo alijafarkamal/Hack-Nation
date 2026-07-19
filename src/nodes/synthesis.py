@@ -9,7 +9,7 @@ from src.citations import normalize_citation
 from src.state import AgentState
 from src.tools.model_serving_tool import query_llm
 
-SYNTHESIS_JSON_PROMPT = """You are a medical data synthesis expert for Indian healthcare facilities (CareCompass).
+SYNTHESIS_JSON_PROMPT = """You are a medical data synthesis expert for Indian healthcare facilities (care-india).
 
 You MUST return ONLY a single valid JSON object (no markdown, no backticks) with this exact shape:
 {
@@ -58,7 +58,7 @@ def _parse_synthesis_json(raw: str) -> dict | None:
     return obj if isinstance(obj, dict) else None
 
 
-_SYNTH_FALLBACK = """You are a medical data synthesis expert for Indian healthcare facilities (CareCompass).
+_SYNTH_FALLBACK = """You are a medical data synthesis expert for Indian healthcare facilities (care-india).
 
 If structured JSON is unavailable, produce Markdown with:
 ### Answer, ### Supporting Evidence (table with Facility|State|PIN|Type|Notes), ### Data Quality Notes.

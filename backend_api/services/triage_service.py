@@ -11,7 +11,7 @@ from src.tools.model_serving_tool import query_llm
 
 _CAP_CACHE: dict[str, Any] = {}
 
-CAPABILITY_PROMPT = """You translate patient language into healthcare facility CAPABILITIES needed in India (CareCompass).
+CAPABILITY_PROMPT = """You translate patient language into healthcare facility CAPABILITIES needed in India (care-india).
 
 NOT medical diagnosis. Output JSON only:
 {"capabilities":["short tokens e.g. emergencyMedicine", "generalSurgery"], "red_flags":["if any ER red-flag keywords"], "graph_query":"one English question to find matching facilities"}

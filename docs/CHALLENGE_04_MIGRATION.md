@@ -1,6 +1,6 @@
 # Challenge 04 — Referral Copilot
 
-CareCompass now implements one focused workflow: enter a care need, receive evidence-backed candidates, save a persistent shortlist, and record planner notes or trust overrides. Watchlist refresh compares saved candidates with newer facility trust data.
+care-india now implements one focused workflow: enter a care need, receive evidence-backed candidates, save a persistent shortlist, and record planner notes or trust overrides. Watchlist refresh compares saved candidates with newer facility trust data.
 
 ## Local development
 

@@ -1,4 +1,4 @@
-# CareCompass India 🧭
+# care-india 🧭
 
 > **Agentic healthcare intelligence for 1.4 billion lives.**
 > Multi-agent LangGraph pipeline on Databricks — turning messy facility data into triage decisions, trust verdicts, and policy-grade desert maps.
@@ -88,7 +88,7 @@ sequenceDiagram
 
 ---
 
-## What CareCompass Does
+## What care-india Does
 
 India has **10,002 healthcare facilities** across 36 states/UTs — recorded across 41 columns of messy CSV data, with free-form text descriptions, missing geolocation, inconsistent capability fields, and zero standardised coverage reporting. A patient or NGO planner cannot answer *"Where is the nearest ICU in Bihar with a trust-verified surgical capability?"* without:
 
@@ -97,7 +97,7 @@ India has **10,002 healthcare facilities** across 36 states/UTs — recorded acr
 3. A **multi-pass verification system** that flags contradictions between claimed and evidenced capabilities
 4. **Statistical coverage maps** that quantify *uncertainty* — not just gap existence
 
-CareCompass solves all four.
+care-india solves all four.
 
 ---
 
@@ -406,7 +406,7 @@ Tests cover: Haversine geospatial math (unit), Databricks service connectivity (
 
 ## Graceful Degradation
 
-CareCompass is designed to **always** provide value, even when services are partially unavailable:
+care-india is designed to **always** provide value, even when services are partially unavailable:
 
 | Failure mode | Behaviour |
 |---|---|
@@ -476,7 +476,7 @@ hack-nation/
 
 ## Evaluation Criteria Alignment
 
-| Criterion | Weight | How CareCompass addresses it |
+| Criterion | Weight | How care-india addresses it |
 |-----------|--------|------------------------------|
 | **Technical accuracy** | 35% | Two-pass LLM trust verification + deterministic rules; row-level citations with exact evidence snippets; MLflow 3 traces per `correlation_id`; graceful degradation with explicit component status |
 | **IDP innovation** | 30% | Dedicated IDP Extraction node; synthesis evidence table; extractor/validator adversarial debate; structured JSON before Markdown render |
@@ -487,7 +487,7 @@ hack-nation/
 
 ## Disclaimer
 
-CareCompass is a **capability-matching triage assistant**, not a medical diagnosis tool. All outputs are for planning and coordination purposes. In emergencies, seek immediate in-person care.
+care-india is a **capability-matching triage assistant**, not a medical diagnosis tool. All outputs are for planning and coordination purposes. In emergencies, seek immediate in-person care.
 
 ---
 

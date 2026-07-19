@@ -1,1 +1,1 @@
-"""MLflow / Mosaic serving helpers for CareCompass."""
+"""MLflow / Mosaic serving helpers for care-india."""

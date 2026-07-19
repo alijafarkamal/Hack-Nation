@@ -1,4 +1,4 @@
-# CareCompass India — Technical Slide Deck Source
+# care-india — Technical Slide Deck Source
 > Paste this file into Gamma / Claude Slides / Pitch.com. Each `## SLIDE` heading is one slide.
 > Keep GitHub prominent on Slide 1. Total: 6 slides.
 
@@ -6,7 +6,7 @@
 
 ## SLIDE 1 — Headline + GitHub
 
-**CareCompass India**
+**care-india**
 *Agentic Healthcare Intelligence for 1.4 Billion Lives — Hack-Nation × Databricks 2026*
 
 **GitHub:** https://github.com/alijafarkamal/Hack-Nation
@@ -15,7 +15,7 @@
 **The core problem India faces:**
 India has ~10,000+ facilities across 36 states/UTs with severely uneven data quality — free-form text descriptions, missing geolocation, inconsistent capability fields, and zero standardised coverage reporting. Planners and responders cannot answer "Where is the nearest ICU in Bihar?" without a pipeline that understands messy text, cross-references claims, and quantifies uncertainty.
 
-CareCompass solves this with a multi-agent Databricks-native backend that routes natural-language queries through specialist nodes, scores facility trustworthiness through adversarial LLM passes, and surfaces policy-grade medical desert statistics in a Streamlit dashboard.
+care-india solves this with a multi-agent Databricks-native backend that routes natural-language queries through specialist nodes, scores facility trustworthiness through adversarial LLM passes, and surfaces policy-grade medical desert statistics in a Streamlit dashboard.
 
 ---
 
@@ -86,7 +86,7 @@ All artifacts (`per_facility`, `summary`, `disagreements`) stored in `trust_arti
 For a given specialty, the geo node queries the Unity Catalog Delta table for facility coverage at PIN-code or state granularity, identifies zero-coverage regions ("deserts"), and cross-references against population data.
 
 **Wilson Score Interval — statistical framing of sparse data:**
-Where PIN codes have only 2–3 reported facilities against a population expectation of 30+, reporting a raw ratio is misleading. CareCompass applies the Wilson binomial confidence interval to desert proportions, returning `point`, `low_95`, `high_95` — telling planners the data is uncertain, not fabricating precision.
+Where PIN codes have only 2–3 reported facilities against a population expectation of 30+, reporting a raw ratio is misleading. care-india applies the Wilson binomial confidence interval to desert proportions, returning `point`, `low_95`, `high_95` — telling planners the data is uncertain, not fabricating precision.
 
 This surfaces in:
 - Mission Planner: gauge chart with low/high bands and explicit "Data uncertainty" label

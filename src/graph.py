@@ -85,6 +85,6 @@ def run_graph(
 
 @mlflow.trace
 def run_agent(query: str) -> str:
-    """Run the full CareCompass graph; return Markdown answer."""
+    """Run the full care-india graph; return Markdown answer."""
     r = run_graph(query).get("final_answer") or "No answer produced."
     return (r.strip() or "No answer produced.")

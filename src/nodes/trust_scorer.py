@@ -12,7 +12,7 @@ from src.tools.model_serving_tool import query_llm
 from src.tools.vector_search_tool import get_vector_search_status, query_vector_search
 from src.utils.trust_rules import facility_dict_to_trust
 
-EXTRACTOR_PROMPT = """You are Pass 1 — a fact extractor for Indian healthcare facilities (CareCompass).
+EXTRACTOR_PROMPT = """You are Pass 1 — a fact extractor for Indian healthcare facilities (care-india).
 
 For EACH facility in the input JSON array, return ONE JSON object (array of same length) with:
 {

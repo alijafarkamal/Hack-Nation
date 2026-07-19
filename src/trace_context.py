@@ -5,5 +5,5 @@ from __future__ import annotations
 import contextvars
 
 current_correlation_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "carecompass_cid", default=None
+    "care-india_cid", default=None
 )

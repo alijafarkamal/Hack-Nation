@@ -1,1 +1,1 @@
-"""LangGraph node implementations for CareCompass."""
+"""LangGraph node implementations for care-india."""

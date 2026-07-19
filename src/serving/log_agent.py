@@ -1,4 +1,4 @@
-"""Log CareCompass agent to MLflow; optional UC register and deploy."""
+"""Log care-india agent to MLflow; optional UC register and deploy."""
 
 import os
 import sys
@@ -13,13 +13,13 @@ import mlflow  # noqa: E402
 _CONFIG_PATH = Path(__file__).parent / "model_config.yaml"
 
 UC_MODEL_NAME = os.getenv(
-    "UC_MODEL_NAME", "hack_nation.india_medical.carecompass_agent"
+    "UC_MODEL_NAME", "hack_nation.india_medical.care_india_agent"
 )
 
 
 def log_agent() -> str:
     model_config = mlflow.models.ModelConfig(development_config=str(_CONFIG_PATH))
-    with mlflow.start_run(run_name="carecompass-agent") as run:
+    with mlflow.start_run(run_name="care-india-agent") as run:
         _ = model_config
         model_info = mlflow.pyfunc.log_model(
             python_model=str(Path(__file__).parent / "agent_wrapper.py"),
@@ -40,7 +40,7 @@ def log_agent() -> str:
         mlflow.set_tags(
             {
                 "agent_type": "langgraph_multi_agent",
-                "product": "carecompass",
+                "product": "care-india",
             }
         )
         return f"runs:/{run.info.run_id}/agent"
