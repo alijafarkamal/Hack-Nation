@@ -154,7 +154,7 @@ def policy_pin_risk(request: Request, pin_code: str) -> dict:
     return r
 
 
-_react_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+_react_dist = Path(__file__).resolve().parent.parent / "nextjs-frontend" / "out"
 if _react_dist.exists():
     app.mount("/", StaticFiles(directory=_react_dist, html=True), name="react")
 
