@@ -30,8 +30,11 @@ if DATABRICKS_HOST and DATABRICKS_TOKEN:
         mlflow.set_tracking_uri("databricks")
         os.environ.setdefault("DATABRICKS_HOST", DATABRICKS_HOST)
         os.environ.setdefault("DATABRICKS_TOKEN", DATABRICKS_TOKEN)
+        mlflow.set_experiment(
+            os.getenv("MLFLOW_EXPERIMENT_PATH", "/Shared/india-medical-agent")
+        )
     except Exception as e:
-        logger.warning("MLflow Databricks setup failed (will use local): %s", e)
+        logger.info("MLflow Databricks experiment unavailable; using local tracing: %s", e)
         mlflow.set_tracking_uri("mlruns")
 else:
     logger.info(

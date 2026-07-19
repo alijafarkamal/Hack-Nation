@@ -7,7 +7,9 @@ import uuid
 from typing import Any
 
 from src.graph import run_graph
+from src.nodes.trust_scorer import trust_scorer_node
 from src.tools.model_serving_tool import query_llm
+from src.tools.vector_search_tool import query_vector_search
 
 _CAP_CACHE: dict[str, Any] = {}
 
@@ -96,14 +98,50 @@ def match_facilities_for_session(
     cap = ", ".join(s.get("capabilities") or ["general"])
     st = f" in {state_hint}" if state_hint else " in India"
     q = (
-        f"List up to {top_k} high-trust facilities{st} that match these capabilities: {cap}. "
-        f"Include facility name, state, pin, and trust note."
+        f"Use semantic facility search to find up to {top_k} high-trust facilities{st} "
+        f"that match these capabilities: {cap}. Include facility name, city, state, pin, "
+        f"latitude, longitude, capabilities, evidence, and trust note."
     )
     if state_hint:
         q += f" Prioritize {state_hint}."
     g = run_graph(q, correlation_id=correlation_id)
+
+    # The graph supervisor is intentionally flexible and may classify a facility list as
+    # SQL instead of SEARCH. The map API contract is not flexible: it needs the original
+    # Vector Search rows because those rows contain latitude and longitude. Preserve a
+    # SEARCH result produced by the graph; otherwise retrieve the rows deterministically.
+    search_result = g.get("search_result")
+    if not isinstance(search_result, list) or not search_result:
+        filters = {"state_normalized": state_hint} if state_hint else None
+        search_result = query_vector_search(q, num_results=top_k, filters=filters)
+        # A state filter can legitimately produce no hits (or be unsupported by an older
+        # index). Retry semantically so the endpoint still returns useful, unmapped-safe
+        # facility records rather than silently substituting invented coordinates.
+        if not search_result and filters:
+            search_result = query_vector_search(q, num_results=top_k)
+
+    # Facility matching promises truth-verification data to both the triage UI and
+    # Mission Planner. The supervisor can legitimately choose SEARCH without TRUST,
+    # so run the trust pipeline deterministically when its artifacts are absent.
+    trust_artifacts = g.get("trust_artifacts")
+    trust_result = g.get("trust_result")
+    trust_citations: list[dict[str, Any]] = []
+    if not isinstance(trust_artifacts, dict) or not isinstance(trust_artifacts.get("per_facility"), list):
+        trust_out = trust_scorer_node({"query": q, "correlation_id": correlation_id})
+        trust_artifacts = trust_out.get("trust_artifacts") or {"per_facility": []}
+        trust_result = trust_out.get("trust_result") or trust_result
+        trust_citations = list(trust_out.get("citations") or [])
+
+    citations = list(g.get("citations") or [])
+    if trust_citations:
+        citations.extend(trust_citations)
+
     return {
         **g,
+        "search_result": search_result,
+        "trust_artifacts": trust_artifacts,
+        "trust_result": trust_result,
+        "citations": citations,
         "safety_disclaimer": _SAFETY,
         "graph_summary": (g.get("final_answer") or "")[:20000] or None,
         "degraded_components": g.get("degraded_components", []),

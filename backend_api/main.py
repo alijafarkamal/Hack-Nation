@@ -6,6 +6,7 @@ Run: `uvicorn backend_api.main:app --reload` from repo root.
 from __future__ import annotations
 
 import sys
+import logging
 from pathlib import Path
 
 # Allow `python main.py` when the current directory is `backend_api`.
@@ -25,6 +26,8 @@ from backend_api.schemas import (
 )
 from backend_api.routes import enrichment, referral, shortlist
 from backend_api.services import policy_service, readiness_service, triage_service
+
+coordinate_logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(
     title="CareCompass API",
@@ -104,9 +107,33 @@ def triage_get(request: Request, session_id: str) -> TriageSessionResponse:
 @app.post("/triage/match_facilities")
 def triage_match(request: Request, body: TriageMatchRequest) -> dict:
     cor = _cid(request)
-    return triage_service.match_facilities_for_session(
+    result = triage_service.match_facilities_for_session(
         body.session_id, cor, body.state_hint, body.top_k
     )
+    hits = [row for row in (result.get("search_result") or []) if isinstance(row, dict)]
+    exact = 0
+    coordinate_logger.info("[FACILITY COORDINATES] correlation_id=%s search_results=%d", cor, len(hits))
+    for index, row in enumerate(hits, start=1):
+        lat = row.get("latitude", row.get("lat"))
+        lon = row.get("longitude", row.get("lon"))
+        mappable = lat not in (None, "", 0, "0") and lon not in (None, "", 0, "0")
+        exact += int(mappable)
+        coordinate_logger.info(
+            "[FACILITY COORDINATES] #%d facility=%r state=%r pin=%r latitude=%r longitude=%r mappable=%s",
+            index,
+            row.get("name", "Unknown"),
+            row.get("state_normalized", ""),
+            row.get("pin_code", ""),
+            lat,
+            lon,
+            mappable,
+        )
+    coordinate_logger.info(
+        "[FACILITY COORDINATES] summary exact=%d missing=%d source=search_result",
+        exact,
+        max(0, len(hits) - exact),
+    )
+    return result
 
 
 @app.get("/policy/deserts")

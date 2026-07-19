@@ -84,6 +84,7 @@ def query_vector_search(
         query_text=query_text,
         columns=_COLUMNS,
         num_results=num_results,
+        disable_notice=True,
     )
     if filters:
         kwargs["filters"] = filters
@@ -103,6 +104,7 @@ def query_vector_search(
                         query_text=query_text,
                         columns=retry_cols,
                         num_results=num_results,
+                        disable_notice=True,
                         **({"filters": filters} if filters else {}),
                     )
                     data_array = raw.get("result", {}).get("data_array", [])
