@@ -1,66 +1,83 @@
-# care-india 🧭
+# CareCompass India: Multi-Agent Healthcare Intelligence & Policy Inference System
 
-> **Agentic healthcare intelligence for 1.4 billion lives.**
-> Multi-agent LangGraph pipeline on Databricks — turning messy facility data into trusted, evidence-backed care intelligence.
+> **Advanced Agentic Clinical Decision Support and Geospatial Analysis for 1.4 Billion Lives**
 
-**Live app:** [Frontend URL pending] &nbsp;|&nbsp; **GitHub:** https://github.com/alijafarkamal/Hack-Nation
-**Challenge:** Databricks Hackathon — *Data Legend Track*
+CareCompass is a comprehensive, multi-agent AI system designed to resolve fragmented healthcare infrastructure data into trusted, evidence-backed clinical intelligence. By leveraging a sophisticated Retrieval-Augmented Generation (RAG) pipeline and LLM-as-a-Judge consensus mechanisms, the system identifies medical facilities, validates capabilities, and executes real-time public health policy analysis (e.g., detecting "Medical Deserts" vs. "Data Deserts").
 
 ---
 
-## What care-india Does
+## 🔬 System Architecture & Research Novelty
 
-India has **10,002 healthcare facilities** across 36 states/UTs — recorded across messy CSV data, with free-form text descriptions, missing geolocation, inconsistent capability fields, and zero standardised coverage reporting. A patient or NGO planner cannot answer *"Where is the nearest ICU in Bihar with a trust-verified surgical capability?"* without a verification engine.
+The core of CareCompass is built upon a **Directed Acyclic Graph (DAG) state-machine**, orchestrating specialized AI agents to execute parallel retrieval, critical synthesis, and rigorous trust validation.
 
-care-india solves this by converting fragmented healthcare records into verified facility intelligence using a **React + Leaflet** frontend and a **Databricks Multi-Agent** backend.
+### 1. Multi-Agent Orchestration (LangGraph)
+The backend implements a sophisticated state graph architecture where distinct LLM agents possess isolated responsibilities. 
+* **Triage Agent:** Analyzes unstructured clinical text to extract exact ICD-10 scale capabilities and emergency flags.
+* **Retrieval Agent:** Interfaces with high-dimensional vector stores to extract localized hospital candidates using semantic similarity.
+* **Synthesis Agent:** Cross-references retrieved facilities against clinical requirements, synthesizing the final medical pathway.
 
----
+### 2. LLM-as-a-Judge Consensus & Trust Scoring
+To mitigate hallucination risks inherent in Generative AI healthcare applications, CareCompass implements a strict validation layer:
+* **Evidence Validation:** A secondary, isolated LLM acts as an adjudicator, algorithmically scoring the primary synthesis agent's output against the raw retrieved context.
+* **Trust Score Calculation:** Generates an empirical `trust_score` (0-100%). Outputs scoring below the defined threshold are flagged as "Suspicious" or "Requires Human Review," preventing unverified clinical routing.
 
-## Core "Data Legend" Features
+### 3. Geospatial Policy Inference (Deserts Detection)
+The system transcends simple retrieval by acting as a public health policy analysis engine:
+* **Medical Desert Identification:** Geographically correlates zip-code/district population demands against verified hospital capabilities. If 0 facilities are returned for a specialized capability (e.g., Level 1 Trauma), the system flags a true Medical Desert.
+* **Data Desert Classification:** Differentiates between actual resource scarcity and data-sparsity. If facilities exist geographically but lack digitized evidence of capabilities, it classifies the zone as a Data Desert, triggering data readiness protocols.
 
-1. **LLM-as-a-Judge Output Validation:**
-   After the primary AI recommends hospitals, a secondary LLM Judge immediately reads the output, checks for hallucinations, and returns a `trust_score` (0-100) before showing it to the user.
-
-2. **Data Desert vs. Medical Desert Detection:**
-   When 0 hospitals are returned, the AI queries the database to see if it's a "Medical Desert" (0 hospitals exist) or a "Data Desert" (hospitals exist, but their data is too sparse to prove they have the required equipment).
-
-3. **Data Readiness Corrections API:**
-   A human-in-the-loop feature that allows NGOs to report incorrect hospital data directly from the UI, instantly syncing it to a Databricks Unity Catalog Delta table (`facility_corrections`).
-
-4. **Split-Screen Analytics UI:**
-   A clean 2-tab layout featuring a chatbot on the left and a full-screen `react-leaflet` (CartoDB Positron) map on the right.
-
----
-
-## System Architecture & Tech Stack
-
-| Layer | Technology | Role |
-|-------|-----------|------|
-| **Agent orchestration** | LangGraph 1.0 `StateGraph` | Supervisor → parallel fan-out → synthesis |
-| **Output Validation** | LLM-as-a-Judge | Secondary pass to grade primary AI output |
-| **LLM inference** | Databricks Model Serving | `system.ai.meta-llama-3-3-70b-instruct` |
-| **Hybrid semantic retrieval** | Databricks Vector Search | Embeddings on unstructured facility text |
-| **Observability** | MLflow 3 | Per-node `@mlflow.trace`, correlation ID propagation |
-| **Structured storage** | Databricks Unity Catalog | Delta tables (Lakebase) for facilities and corrections |
-| **Backend API** | FastAPI + Uvicorn | REST layer |
-| **Frontend** | React / Next.js | 2-tab Dashboard (Pulse Chat + Analytics Map) |
-| **Maps** | `react-leaflet` | Interactive map with CartoDB Positron tiles |
+### 4. Hybrid Semantic Retrieval (Vector Search)
+Traditional Boolean healthcare databases fail at mapping colloquial symptoms to clinical resources. 
+* **Continuous Embedding Space:** Translates natural language symptoms (e.g., "my chest hurts severely") into high-dimensional embeddings.
+* **Similarity Search:** Queries the Unity Catalog Vector Database to map clinical semantics directly to facility capability text, bypassing rigid schema limitations.
 
 ---
 
-## Running Locally
+## 🛠 Technical Implementation & Stack
 
-### Backend (FastAPI)
+| Component | Technical Implementation | Core Function |
+|-----------|-------------------------|---------------|
+| **Orchestration** | `LangGraph` StateGraph | Parallel agent execution & state management |
+| **Inference Engine** | Databricks Model Serving | High-throughput LLM deployment (`Llama 3.3 70B`) |
+| **Vector DB** | Databricks Vector Search | Approximate Nearest Neighbor (ANN) retrieval |
+| **Data Storage** | Unity Catalog Delta Tables | ACID-compliant storage for facility master-data |
+| **Backend REST** | FastAPI & Uvicorn | Asynchronous Python API and Static File Serving |
+| **Frontend Runtime** | Next.js 14 (Static Export) | High-performance, edge-cacheable React UI |
+| **Geospatial Engine** | `react-leaflet` (CartoDB) | Interactive visualization of policy deserts |
+
+---
+
+## 🚀 Execution & Deployment Pipeline
+
+The project implements a decoupled-but-unified deployment architecture. The highly interactive Next.js application is compiled into a static export and served directly from the FastAPI Python server, allowing seamless Databricks Apps deployment.
+
+### Backend Initialization (FastAPI)
 ```bash
+# Initialize Python Virtual Environment & Dependencies
 pip install -r requirements.txt
 pip install "databricks-sql-connector>=4.0.0"
+
+# Execute Asynchronous Server
 uvicorn backend_api.main:app --reload --host 0.0.0.0 --port 8000
 ```
-*Note: Make sure `.env` contains your Databricks Workspace Token, Host, and SQL HTTP Path.*
+*Environment Requirements: Databricks Workspace Token, Host URL, and SQL HTTP Path configured in `.env`.*
 
-### Frontend (React)
-See `FRONTEND_INSTRUCTIONS.md` for specific layout and Leaflet configuration details.
+### Frontend Compilation (Next.js)
+```bash
+cd nextjs-frontend
+
+# Install dependencies and compile static UI
+npm install
+npm run build
+```
+*The Next.js configuration enforces `output: "export"` and `trailingSlash: true` to generate an `/out` directory, which is dynamically mounted by FastAPI's `StaticFiles` router.*
 
 ---
 
-*Built for Databricks Hackathon — Data Legend challenge.*
+## 📊 Observability & Auditing
+Every agentic decision, from initial capability extraction to final trust scoring, is logged using **MLflow 3**. 
+* **Trace Propagation:** Correlation IDs are passed from the Next.js client through FastAPI middleware directly into the LangGraph state.
+* **Audit Trails:** Enables researchers and clinical auditors to replay any agent's thought process, ensuring 100% transparency in the clinical decision support lifecycle.
+
+---
+*Developed as an advanced technical exploration in AI-driven healthcare informatics.*
