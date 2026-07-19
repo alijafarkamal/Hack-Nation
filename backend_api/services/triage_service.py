@@ -102,8 +102,31 @@ def match_facilities_for_session(
     if state_hint:
         q += f" Prioritize {state_hint}."
     g = run_graph(q, correlation_id=correlation_id)
+    
+    desert_analysis = None
+    if state_hint:
+        try:
+            from src.config import db_client, CATALOG, SCHEMA, TABLE_FACILITIES
+            from databricks.sdk.service.sql import Disposition
+            warehouses = list(db_client.warehouses.list())
+            if warehouses:
+                wh = warehouses[0].id
+                stmt = f"SELECT count(*) FROM {CATALOG}.{SCHEMA}.{TABLE_FACILITIES} WHERE lower(state) LIKE lower('%{state_hint}%')"
+                resp = db_client.statement_execution.execute_statement(
+                    warehouse_id=wh, statement=stmt, wait_timeout="20s", disposition=Disposition.INLINE
+                )
+                if resp.result and resp.result.data_array:
+                    total_facilities = int(resp.result.data_array[0][0])
+                    if total_facilities > 0:
+                        desert_analysis = f"DATA DESERT WARNING: We found {total_facilities} facilities in {state_hint}, but their data is too sparse to verify they have: {cap}."
+                    else:
+                        desert_analysis = f"MEDICAL DESERT WARNING: There are 0 registered facilities in {state_hint}."
+        except Exception as e:
+            desert_analysis = f"Desert analysis unavailable ({e})"
+
     return {
         **g,
+        "desert_analysis": desert_analysis,
         "safety_disclaimer": _SAFETY,
         "graph_summary": (g.get("final_answer") or "")[:20000] or None,
         "degraded_components": g.get("degraded_components", []),

@@ -23,7 +23,7 @@ from backend_api.schemas import (
     TriageMatchRequest,
     TriageSessionResponse,
 )
-from backend_api.routes import enrichment, referral, shortlist
+from backend_api.routes import enrichment, referral, shortlist, corrections
 from backend_api.services import policy_service, readiness_service, triage_service
 
 app = FastAPI(
@@ -41,6 +41,7 @@ app.add_middleware(
 app.include_router(referral.router)
 app.include_router(enrichment.router)
 app.include_router(shortlist.router)
+app.include_router(corrections.router)
 
 
 def _cid(request: Request) -> str:

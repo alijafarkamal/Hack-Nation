@@ -100,3 +100,17 @@ class ShortlistUpdateRequest(BaseModel):
     user_notes: str = Field(default="", max_length=8000)
     trust_override: float | None = Field(default=None, ge=0, le=1)
     override_reason: str = Field(default="", max_length=4000)
+
+
+class CorrectionSubmitRequest(BaseModel):
+    facility_id: str = Field(..., min_length=1)
+    facility_name: str = Field(..., min_length=1)
+    correction_text: str = Field(..., min_length=10, max_length=5000)
+    evidence_link: str = Field(default="")
+    submitted_by: str = Field(default="anonymous")
+
+
+class CorrectionResponse(BaseModel):
+    success: bool
+    correction_id: str
+    message: str
