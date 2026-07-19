@@ -30,9 +30,6 @@ if DATABRICKS_HOST and DATABRICKS_TOKEN:
         mlflow.set_tracking_uri("databricks")
         os.environ.setdefault("DATABRICKS_HOST", DATABRICKS_HOST)
         os.environ.setdefault("DATABRICKS_TOKEN", DATABRICKS_TOKEN)
-        mlflow.set_experiment(
-            os.getenv("MLFLOW_EXPERIMENT_PATH", "/Shared/india-medical-agent")
-        )
     except Exception as e:
         logger.warning("MLflow Databricks setup failed (will use local): %s", e)
         mlflow.set_tracking_uri("mlruns")
@@ -47,14 +44,25 @@ db_client = WorkspaceClient(
     token=DATABRICKS_TOKEN or "dapi_placeholder",
 )
 
-try:
-    vs_client = VectorSearchClient(
-        workspace_url=DATABRICKS_HOST or "https://placeholder.cloud.databricks.com",
-        personal_access_token=DATABRICKS_TOKEN or "dapi_placeholder",
-        disable_notice=True,
-    )
-except Exception:  # pragma: no cover
-    vs_client = None  # type: ignore[assignment]
+class LazyVectorSearchClient:
+    """Create the network-aware client on first retrieval, never at API import time."""
+
+    _client: VectorSearchClient | None = None
+
+    def _get(self) -> VectorSearchClient:
+        if self._client is None:
+            self._client = VectorSearchClient(
+                workspace_url=DATABRICKS_HOST or "https://placeholder.cloud.databricks.com",
+                personal_access_token=DATABRICKS_TOKEN or "dapi_placeholder",
+                disable_notice=True,
+            )
+        return self._client
+
+    def get_index(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return self._get().get_index(*args, **kwargs)
+
+
+vs_client = LazyVectorSearchClient()
 
 # Configuration constants
 GENIE_SPACE_ID = os.getenv("GENIE_SPACE_ID")

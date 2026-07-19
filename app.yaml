@@ -1,0 +1,14 @@
+command:
+  - uvicorn
+  - backend_api.main:app
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8000"
+env:
+  - name: DATABRICKS_CATALOG
+    value: hack_nation
+  - name: DATABRICKS_SCHEMA
+    value: india_medical
+  - name: SHORTLIST_TABLE
+    value: hack_nation.india_medical.user_shortlists

@@ -81,6 +81,10 @@ def request_json(
             resp = requests.get(url, headers=headers, timeout=timeout)
         elif method.upper() == "POST":
             resp = requests.post(url, headers=headers, json=json_body, timeout=timeout)
+        elif method.upper() == "PUT":
+            resp = requests.put(url, headers=headers, json=json_body, timeout=timeout)
+        elif method.upper() == "DELETE":
+            resp = requests.delete(url, headers=headers, json=json_body, timeout=timeout)
         else:
             raise ValueError(f"Unsupported method: {method}")
     except requests.RequestException as e:
@@ -125,10 +129,23 @@ def post_json(path: str, body: dict[str, Any], request_id: str | None = None) ->
     return request_json("POST", path, json_body=body, request_id=request_id)
 
 
+def put_json(path: str, body: dict[str, Any], request_id: str | None = None) -> dict[str, Any]:
+    return request_json("PUT", path, json_body=body, request_id=request_id)
+
+
+def delete_json(path: str, request_id: str | None = None) -> dict[str, Any]:
+    return request_json("DELETE", path, request_id=request_id)
+
+
 # ── Triage ───────────────────────────────────────────────────────────────────
 
 def triage_analyze(symptoms_text: str, request_id: str | None = None) -> dict[str, Any]:
     return post_json("/triage/analyze", {"symptoms_text": symptoms_text, "metadata": {}}, request_id=request_id)
+
+
+def triage_get(session_id: str, request_id: str | None = None) -> dict[str, Any]:
+    from urllib.parse import quote
+    return get_json(f"/triage/{quote(session_id, safe='')}", request_id=request_id)
 
 
 def triage_match_facilities(
@@ -191,3 +208,34 @@ def enrichment_facility(
     return post_json("/enrichment/facility", {
         "facility_name": facility_name, "district": district, "state": state,
     }, request_id=request_id)
+
+
+def enrichment_batch(items: list[dict[str, str]], request_id: str | None = None) -> dict[str, Any]:
+    return post_json("/enrichment/batch", {"items": items[:20]}, request_id=request_id)
+
+
+# Shortlist persistence (React is the primary UI; wrappers keep this client complete).
+def shortlist_save(payload: dict[str, Any], request_id: str | None = None) -> dict[str, Any]:
+    return post_json("/shortlist/save", payload, request_id=request_id)
+
+
+def shortlist_get(session_id: str, request_id: str | None = None) -> dict[str, Any]:
+    from urllib.parse import quote
+    return get_json(f"/shortlist/{quote(session_id, safe='')}", request_id=request_id)
+
+
+def shortlist_update_note(payload: dict[str, Any], request_id: str | None = None) -> dict[str, Any]:
+    return put_json("/shortlist/update_note", payload, request_id=request_id)
+
+
+def shortlist_refresh_watchlist(session_id: str, request_id: str | None = None) -> dict[str, Any]:
+    from urllib.parse import quote
+    return post_json(f"/shortlist/{quote(session_id, safe='')}/refresh_watchlist", {}, request_id=request_id)
+
+
+def shortlist_delete(session_id: str, facility_id: str, request_id: str | None = None) -> dict[str, Any]:
+    from urllib.parse import quote
+    return delete_json(
+        f"/shortlist/{quote(session_id, safe='')}/{quote(facility_id, safe='')}",
+        request_id=request_id,
+    )

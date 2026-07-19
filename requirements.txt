@@ -6,6 +6,7 @@ langchain-openai==1.1.7
 # Databricks SDK
 databricks-sdk==0.85.0
 databricks-vectorsearch==0.64
+databricks-sql-connector>=4.0.0
 mlflow==3.9.0
 
 # Frontend (optional; used when UI is added)

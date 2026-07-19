@@ -81,3 +81,22 @@ class EnrichmentFacilityRequest(BaseModel):
 
 class EnrichmentBatchRequest(BaseModel):
     items: list[dict] = Field(default_factory=list, description="Max 20: {name, district?, state?}")
+
+
+class ShortlistSaveRequest(BaseModel):
+    session_id: str = Field(..., min_length=1, max_length=200)
+    facility_id: str = Field(..., min_length=1, max_length=500)
+    facility_name: str = Field(..., min_length=1, max_length=500)
+    user_notes: str = Field(default="", max_length=8000)
+    system_trust_score: float | None = Field(default=None, ge=0, le=1)
+    system_verdict: str = Field(default="REVIEW", max_length=40)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    facility_snapshot: dict[str, Any] = Field(default_factory=dict)
+
+
+class ShortlistUpdateRequest(BaseModel):
+    session_id: str = Field(..., min_length=1, max_length=200)
+    facility_id: str = Field(..., min_length=1, max_length=500)
+    user_notes: str = Field(default="", max_length=8000)
+    trust_override: float | None = Field(default=None, ge=0, le=1)
+    override_reason: str = Field(default="", max_length=4000)

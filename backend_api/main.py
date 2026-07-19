@@ -5,8 +5,16 @@ Run: `uvicorn backend_api.main:app --reload` from repo root.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Allow `python main.py` when the current directory is `backend_api`.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from backend_api.integrations import integration_status
 from backend_api.middleware.correlation import CorrelationIdMiddleware
@@ -15,7 +23,7 @@ from backend_api.schemas import (
     TriageMatchRequest,
     TriageSessionResponse,
 )
-from backend_api.routes import enrichment, referral
+from backend_api.routes import enrichment, referral, shortlist
 from backend_api.services import policy_service, readiness_service, triage_service
 
 app = FastAPI(
@@ -32,6 +40,7 @@ app.add_middleware(
 )
 app.include_router(referral.router)
 app.include_router(enrichment.router)
+app.include_router(shortlist.router)
 
 
 def _cid(request: Request) -> str:
@@ -115,3 +124,14 @@ def policy_pin_risk(request: Request, pin_code: str) -> dict:
     if r.get("error"):
         raise HTTPException(400, str(r.get("error")))
     return r
+
+
+_react_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _react_dist.exists():
+    app.mount("/", StaticFiles(directory=_react_dist, html=True), name="react")
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="debug")
