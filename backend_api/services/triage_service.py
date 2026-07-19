@@ -126,7 +126,7 @@ def match_facilities_for_session(
             warehouses = list(db_client.warehouses.list())
             if warehouses:
                 wh = warehouses[0].id
-                stmt = f"SELECT count(*) FROM {CATALOG}.{SCHEMA}.{TABLE_FACILITIES} WHERE lower(state) LIKE lower('%{state_hint}%')"
+                stmt = f"SELECT count(*) FROM {CATALOG}.{SCHEMA}.{TABLE_FACILITIES} WHERE lower(state_normalized) LIKE lower('%{state_hint}%')"
                 resp = db_client.statement_execution.execute_statement(
                     warehouse_id=wh, statement=stmt, wait_timeout="20s", disposition=Disposition.INLINE
                 )
