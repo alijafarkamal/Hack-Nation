@@ -56,7 +56,7 @@ def query_llm(
     cid = trace_context.current_correlation_id.get()
     if cid:
         try:
-            mlflow.set_tag("carecompass.correlation_id", str(cid)[:200])
+            mlflow.set_tag("care-india.correlation_id", str(cid)[:200])
         except Exception:  # noqa: BLE001
             pass
     try:

@@ -1,4 +1,4 @@
-# CareCompass India — Frontend
+# care-india — Frontend
 
 Streamlit-based healthcare intelligence dashboard for the **Serving A Nation** challenge (Hack-Nation x Databricks 2026).
 
@@ -96,7 +96,7 @@ For facilities with missing data (phone, hours, website), the enrichment agent:
 - **Per-facility block** (Trust Scorer): facility name, **phone / email / website directly under the name** (Tavily enrichment), trust bar, verdict, **Refer this facility** — one combined card per facility (no second duplicate list).
 - **Referral:** "Refer" copies **patient summary** (symptoms text), **triage red flags**, facility name, phone, and best-known **email** for the optional **“Email facility (patient arrival…)”** `mailto:` button. **Preview Referral** / **Send SMS** use the FastAPI referral endpoints; email is client-side only.
 - **View Agent Logic** (expander on match results): Chronological **thought trace** built from the same `synthesis_artifacts` + `trust_artifacts` JSON the backend returns (source merge, confidence, per-facility trust counts, flags/disagreements, MLflow **correlation id**). Not a full span tree, but a judge-friendly trace narrative.
-- **Why CareCompass is agentic** (expandable on Triage): Short checklist (LangGraph, MLflow, Wilson intervals, two-pass truth verification, policy analytics).
+- **Why care-india is agentic** (expandable on Triage): Short checklist (LangGraph, MLflow, Wilson intervals, two-pass truth verification, policy analytics).
 
 ## System Architecture tab (graph methodology)
 
@@ -107,12 +107,12 @@ For facilities with missing data (phone, hours, website), the enrichment agent:
 
 - **Frontend:** Streamlit Community Cloud (free)
 - **Backend:** Render free tier
-- **Environment:** Set `CARECOMPASS_API_URL` in Streamlit Cloud secrets
+- **Environment:** Set `CARE_INDIA_API_URL` in Streamlit Cloud secrets
 
 ## Running Locally
 
 ```bash
 cd frontend
 pip install -r requirements.txt
-CARECOMPASS_API_URL=http://127.0.0.1:8000 streamlit run app.py
+CARE_INDIA_API_URL=http://127.0.0.1:8000 streamlit run app.py
 ```

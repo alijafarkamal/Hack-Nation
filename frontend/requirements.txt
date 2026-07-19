@@ -1,4 +1,4 @@
-# CareCompass India — Streamlit UI (FastAPI client)
+# care-india — Streamlit UI (FastAPI client)
 streamlit>=1.45
 streamlit-folium>=0.25
 folium>=0.18

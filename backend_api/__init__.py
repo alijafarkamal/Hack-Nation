@@ -1,1 +1,1 @@
-"""CareCompass FastAPI: triage, referral mock, policy."""
+"""care-india FastAPI: triage, referral mock, policy."""

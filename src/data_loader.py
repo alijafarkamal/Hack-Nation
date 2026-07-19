@@ -1,4 +1,4 @@
-"""Local data utilities for CareCompass (optional CSV fallback, city hints).
+"""Local data utilities for care-india (optional CSV fallback, city hints).
 
 The primary data source is the Delta table `india_facilities` in Unity Catalog.
 This module can load the hackathon CSV from disk for offline map/planner UIs.

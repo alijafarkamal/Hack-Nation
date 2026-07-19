@@ -1,4 +1,4 @@
-"""HTTP client for CareCompass FastAPI (browser-safe: no Databricks secrets)."""
+"""HTTP client for care-india FastAPI (browser-safe: no Databricks secrets)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ _LAST_REQUEST_ID: str | None = None
 
 
 def _base_url() -> str:
-    return (os.environ.get("CARECOMPASS_API_URL") or "http://127.0.0.1:8000").rstrip("/")
+    return (os.environ.get("CARE_INDIA_API_URL") or "http://127.0.0.1:8000").rstrip("/")
 
 
 def get_api_base() -> str:

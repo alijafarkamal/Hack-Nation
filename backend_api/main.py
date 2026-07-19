@@ -1,5 +1,5 @@
 """
-CareCompass FastAPI: triage, referral (Twilio or mock), policy, Tavily enrichment.
+care-india FastAPI: triage, referral (Twilio or mock), policy, Tavily enrichment.
 Run: `uvicorn backend_api.main:app --reload` from repo root.
 """
 
@@ -24,13 +24,13 @@ from backend_api.schemas import (
     TriageMatchRequest,
     TriageSessionResponse,
 )
-from backend_api.routes import enrichment, referral, shortlist
+from backend_api.routes import enrichment, referral, shortlist, corrections
 from backend_api.services import policy_service, readiness_service, triage_service
 
 coordinate_logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(
-    title="CareCompass API",
+    title="care-india API",
     version="0.1.0",
     description="Capability-matching triage, trust-backed policy, referral SMS (optional Twilio), Tavily enrichment.",
 )
@@ -44,6 +44,7 @@ app.add_middleware(
 app.include_router(referral.router)
 app.include_router(enrichment.router)
 app.include_router(shortlist.router)
+app.include_router(corrections.router)
 
 
 def _cid(request: Request) -> str:
@@ -54,7 +55,7 @@ def _cid(request: Request) -> str:
 def healthz() -> dict:
     return {
         "ok": True,
-        "service": "carecompass",
+        "service": "care-india",
         "integrations": integration_status(),
     }
 

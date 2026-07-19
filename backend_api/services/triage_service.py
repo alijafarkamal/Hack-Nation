@@ -13,7 +13,7 @@ from src.tools.vector_search_tool import query_vector_search
 
 _CAP_CACHE: dict[str, Any] = {}
 
-CAPABILITY_PROMPT = """You translate patient language into healthcare facility CAPABILITIES needed in India (CareCompass).
+CAPABILITY_PROMPT = """You translate patient language into healthcare facility CAPABILITIES needed in India (care-india).
 
 NOT medical diagnosis. Output JSON only:
 {"capabilities":["short tokens e.g. emergencyMedicine", "generalSurgery"], "red_flags":["if any ER red-flag keywords"], "graph_query":"one English question to find matching facilities"}
@@ -82,6 +82,21 @@ _SAFETY = (
     "In emergencies, seek immediate in-person care."
 )
 
+def _run_llm_judge(user_request: str, ai_answer: str) -> dict[str, Any]:
+    prompt = """You are an AI Output Judge verifying a healthcare facility recommendation.
+Review the AI's answer against the user's request.
+Output ONLY JSON in this format:
+{"trust_score": <int 0-100>, "judge_note": "<short explanation of whether the AI hallucinated or if the data is reliable>"}"""
+    user_msg = f"User Request: {user_request}\nAI Answer: {ai_answer[:2000]}"
+    try:
+        raw = query_llm(prompt, user_msg, max_tokens=150)
+        import json
+        s = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        o = json.loads(s)
+        return {"trust_score": o.get("trust_score", 50), "judge_note": o.get("judge_note", "Validation parsed with warnings.")}
+    except Exception as e:
+        return {"trust_score": 0, "judge_note": f"Judge unavailable ({e})"}
+
 
 def match_facilities_for_session(
     session_id: str, correlation_id: str, state_hint: str | None, top_k: int
@@ -136,12 +151,43 @@ def match_facilities_for_session(
     if trust_citations:
         citations.extend(trust_citations)
 
+    # Team-side policy context: distinguish a registry desert from sparse
+    # capability evidence in the selected state.
+    desert_analysis = None
+    if state_hint:
+        try:
+            from src.config import db_client, CATALOG, SCHEMA, TABLE_FACILITIES
+            from databricks.sdk.service.sql import Disposition
+            warehouses = list(db_client.warehouses.list())
+            if warehouses:
+                wh = warehouses[0].id
+                safe_state = state_hint.replace("'", "''")
+                stmt = f"SELECT count(*) FROM {CATALOG}.{SCHEMA}.{TABLE_FACILITIES} WHERE lower(state_normalized) LIKE lower('%{safe_state}%')"
+                resp = db_client.statement_execution.execute_statement(
+                    warehouse_id=wh, statement=stmt, wait_timeout="20s", disposition=Disposition.INLINE
+                )
+                if resp.result and resp.result.data_array:
+                    total_facilities = int(resp.result.data_array[0][0])
+                    if total_facilities > 0:
+                        desert_analysis = f"DATA DESERT WARNING: We found {total_facilities} facilities in {state_hint}, but their data is too sparse to verify they have: {cap}."
+                    else:
+                        desert_analysis = f"MEDICAL DESERT WARNING: There are 0 registered facilities in {state_hint}."
+        except Exception as e:
+            desert_analysis = f"Desert analysis unavailable ({e})"
+
+    llm_judge = None
+    final_ans = g.get("final_answer")
+    if final_ans:
+        llm_judge = _run_llm_judge(q, final_ans)
+
     return {
         **g,
         "search_result": search_result,
         "trust_artifacts": trust_artifacts,
         "trust_result": trust_result,
         "citations": citations,
+        "llm_judge": llm_judge,
+        "desert_analysis": desert_analysis,
         "safety_disclaimer": _SAFETY,
         "graph_summary": (g.get("final_answer") or "")[:20000] or None,
         "degraded_components": g.get("degraded_components", []),

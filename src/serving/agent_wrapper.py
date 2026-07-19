@@ -1,4 +1,4 @@
-"""MLflow ResponsesAgent wrapper for the CareCompass LangGraph."""
+"""MLflow ResponsesAgent wrapper for the care-india LangGraph."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from mlflow.types.responses import (
 )
 
 
-class CareCompassAgent(ResponsesAgent):
-    """ResponsesAgent around the CareCompass LangGraph (stateless per request)."""
+class CareIndiaAgent(ResponsesAgent):
+    """ResponsesAgent around the care-india LangGraph (stateless per request)."""
 
     def __init__(self) -> None:
         from src.graph import graph

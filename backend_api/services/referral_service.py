@@ -41,7 +41,7 @@ def build_referral_preview(
     preview_id = str(uuid.uuid4())
     subj = f"Referral: {body.to_facility[:80]}"
     text = (body.message_body or "").strip() or (
-        f"CareCompass referral preview for facility {body.to_facility}. "
+        f"care-india referral preview for facility {body.to_facility}. "
         f"Summary: {body.patient_summary or 'N/A'}"
     )
     to_phone = _e164_sanitize((body.to_phone or "").strip())
@@ -117,7 +117,7 @@ def send_referral(
     if isinstance(to_e164, str) and to_e164 and not to_e164.startswith("+"):
         to_e164 = _e164_sanitize(to_e164)
 
-    body_text = (p or {}).get("raw_message") or (p or {}).get("body") or "CareCompass referral"
+    body_text = (p or {}).get("raw_message") or (p or {}).get("body") or "care-india referral"
 
     if not p:
         _AUDIT.append(

@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-"""CareCompass India — Streamlit frontend (FastAPI only, no Databricks in browser).
+"""care-india — Streamlit frontend (FastAPI only, no Databricks in browser).
 
 Surfaces: Triage & Matching · Mission Planner · Desert Map · Query Analytics · System Architecture
 Challenge: Serving A Nation — Hack-Nation × Databricks 2026
@@ -362,7 +362,7 @@ def _mailto_patient_arrival(
     to_email: str, facility: str, patient_summary: str, red_flags: list[str] | str,
 ) -> str:
     """Build mailto: URL to notify a facility by email (client-side; no server send)."""
-    subj = "Patient referral - arrival / coordination (CareCompass India)"
+    subj = "Patient referral - arrival / coordination (care-india)"
     rf_text = red_flags if isinstance(red_flags, str) else "\n".join(f"- {x}" for x in (red_flags or []))
     body = (
         f"Regarding facility: {facility}\n\n"
@@ -370,7 +370,7 @@ def _mailto_patient_arrival(
         f"--- Clinical red flags (from triage) ---\n{rf_text or '(none listed)'}\n\n"
         "---\n"
         "This is capability-matching triage assistance, not a medical diagnosis. "
-        "This email was composed from the CareCompass India UI."
+        "This email was composed from the care-india UI."
     )
     return f"mailto:{to_email}?subject={quote(subj)}&body={quote(body)}"
 
@@ -1278,7 +1278,7 @@ def _generate_query_log_pdf(log: list[dict[str, Any]]) -> bytes:
     pdf.set_y(14)
     pdf.set_font("Helvetica", "B", 16)
     pdf.set_text_color(30, 58, 95)
-    pdf.cell(0, 8, "CareCompass India", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.cell(0, 8, "care-india", new_x="LMARGIN", new_y="NEXT", align="C")
     pdf.set_x(pdf.l_margin)
     pdf.set_font("Helvetica", "B", 11)
     pdf.set_text_color(51, 65, 85)
@@ -1388,7 +1388,7 @@ def _generate_mission_pdf(
     pdf.set_y(18)
     pdf.set_font("Helvetica", "B", 18)
     pdf.set_text_color(30, 58, 95)
-    pdf.cell(0, 9, _safe("CareCompass India"), new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.cell(0, 9, _safe("care-india"), new_x="LMARGIN", new_y="NEXT", align="C")
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(51, 65, 85)
     pdf.cell(0, 7, _safe("Mission Planner - Analytical Report"), new_x="LMARGIN", new_y="NEXT", align="C")
@@ -1531,7 +1531,7 @@ def _service_status() -> None:
 
 
 def _build_architecture_graph() -> dict[str, list]:
-    """Static nodes/links representing CareCompass: LangGraph, Databricks, and UI."""
+    """Static nodes/links representing care-india: LangGraph, Databricks, and UI."""
     _nodes: list[dict[str, Any]] = [
         {"id": "user", "name": "User query", "color": "#fb923c", "val": 6},
         {"id": "super", "name": "Supervisor (LangGraph)", "color": "#22d3ee", "val": 5},
@@ -1694,7 +1694,7 @@ def _tab_intelligence() -> None:
     col_a, col_b = st.columns(2, gap="large")
 
     with col_a:
-        st.markdown("#### Why CareCompass is agentic")
+        st.markdown("#### Why care-india is agentic")
         st.caption("Same layout as the right column: **one row = one idea** — not a monolithic LLM wrapper.")
         st.markdown(
             """
@@ -2220,7 +2220,7 @@ def _tab_planner() -> None:
         st.download_button(
             "Download Planning Report (PDF)",
             data=pdf_bytes,
-            file_name="carecompass_india_mission_planner.pdf",
+            file_name="care-india_mission_planner.pdf",
             mime="application/pdf",
             key="dl_mission_pdf",
         )
@@ -2232,11 +2232,11 @@ def _tab_planner() -> None:
             type="secondary",
         )
         st.caption("Run **Desert Analysis** first to generate the full planning report.")
-        if pdf_err is not None and _env_truthy("CARECOMPASS_DEBUG"):
+        if pdf_err is not None and _env_truthy("CARE_INDIA_DEBUG"):
             if pdf_exc is not None:
                 st.exception(pdf_exc)
             else:
-                with st.expander("PDF error detail (CARECOMPASS_DEBUG only)"):
+                with st.expander("PDF error detail (CARE_INDIA_DEBUG only)"):
                     st.code(pdf_err)
 
 
@@ -2684,11 +2684,11 @@ def _tab_analytics() -> None:
     writer.writerows(log)
     dl_col1, dl_col2 = st.columns(2)
     with dl_col1:
-        st.download_button("Download Query Log (CSV)", data=buf.getvalue(), file_name=f"carecompass_query_log_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv", key="dl_query_csv")
+        st.download_button("Download Query Log (CSV)", data=buf.getvalue(), file_name=f"care-india_query_log_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv", key="dl_query_csv")
     with dl_col2:
         try:
             pdf_q = _generate_query_log_pdf(log)
-            st.download_button("Download Query Log (PDF)", data=pdf_q, file_name=f"carecompass_query_log_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf", key="dl_query_pdf")
+            st.download_button("Download Query Log (PDF)", data=pdf_q, file_name=f"care-india_query_log_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf", key="dl_query_pdf")
         except Exception:
             pass
 
@@ -2696,13 +2696,13 @@ def _tab_analytics() -> None:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    st.set_page_config(page_title="CareCompass — India", page_icon="🧭", layout="wide", initial_sidebar_state="collapsed")
+    st.set_page_config(page_title="care-india — India", page_icon="🧭", layout="wide", initial_sidebar_state="collapsed")
     inject_css()
     st.sidebar.markdown("### API")
     st.sidebar.caption(f"Base URL: `{api_client.get_api_base()}`")
     st.markdown("""
 <div class="app-header">
-  <h1>🧭 CareCompass — India</h1>
+  <h1>🧭 care-india — India</h1>
   <p><span class="tagline">Agentic Healthcare Intelligence for 1.4 Billion Lives</span><br>
   Capability triage &nbsp;·&nbsp; medical desert mapping &nbsp;·&nbsp; trust verification &nbsp;·&nbsp; policy analytics<br>
   <small>Powered by Databricks: Genie &nbsp;·&nbsp; Vector Search &nbsp;·&nbsp; Model Serving &nbsp;·&nbsp; MLflow&nbsp;3 &nbsp;·&nbsp; Unity Catalog</small></p>

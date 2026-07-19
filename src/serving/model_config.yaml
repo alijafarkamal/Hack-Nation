@@ -1,4 +1,4 @@
-# CareCompass — MLflow ModelConfig for Mosaic AI Agent Framework
+# care-india — MLflow ModelConfig for Mosaic AI Agent Framework
 
 llm_endpoint: "databricks-qwen3-next-80b-a3b-instruct"
 llm_parameters:
@@ -15,6 +15,6 @@ databricks_schema: "india_medical"
 
 mlflow_experiment_path: "/Shared/india-medical-agent"
 
-agent_name: "carecompass-agent"
+agent_name: "care-india-agent"
 agent_description: >
-  Multi-agent CareCompass: Genie, Vector Search, IDP extraction, Trust Scorer, geospatial.
+  Multi-agent care-india: Genie, Vector Search, IDP extraction, Trust Scorer, geospatial.

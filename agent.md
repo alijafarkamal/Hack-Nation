@@ -1,6 +1,6 @@
-# agent.md — CareCompass Frontend (Hack Nation: Serving a Nation / Databricks Track)
+# agent.md — care-india Frontend (Hack Nation: Serving a Nation / Databricks Track)
 
-This document is the **authoritative implementation guide** for a teammate building the **web frontend** for CareCompass. It is written to be paste-friendly into **Cursor, Copilot, or Codex**: follow phases in order, implement contracts exactly, and wire every screen to the **existing FastAPI** backend in this repository.
+This document is the **authoritative implementation guide** for a teammate building the **web frontend** for care-india. It is written to be paste-friendly into **Cursor, Copilot, or Codex**: follow phases in order, implement contracts exactly, and wire every screen to the **existing FastAPI** backend in this repository.
 
 > **Inspiration:** The structure (mission, rubric, architecture diagrams, wireframes, demo script, phased definition-of-done) mirrors the depth of [`reference/Medical-Intelligence-Agent/AGENT.md`](reference/Medical-Intelligence-Agent/AGENT.md), but this repo’s UI target is a **TypeScript + React/Next.js** app calling **`backend_api`**, not Streamlit.
 
@@ -47,7 +47,7 @@ flowchart LR
     UI[Next.js_UI]
   end
   subgraph api [AppServer]
-    FA[FastAPI_carecompass]
+    FA[FastAPI_care-india]
     MV[CorrelationId_Middleware]
   end
   subgraph ag [LocalAgent]
@@ -174,7 +174,7 @@ Show **triage** disclaimers on chat/analyze; show **match** disclaimer prominent
 ```json
 {
   "ok": true,
-  "service": "carecompass",
+  "service": "care-india",
   "integrations": {
     "twilio": { "configured": true, "from_set": true },
     "tavily": { "configured": true }
@@ -369,7 +369,7 @@ Shape:
 
 ```
 frontend/
-  .env.local                 # NEXT_PUBLIC_CARECOMPASS_API_URL=http://127.0.0.1:8000
+  .env.local                 # NEXT_PUBLIC_CARE_INDIA_API_URL=http://127.0.0.1:8000
   app/
     layout.tsx
     page.tsx                 # or route groups per tab
@@ -404,7 +404,7 @@ frontend/
 
 ```bash
 # .env.local
-NEXT_PUBLIC_CARECOMPASS_API_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_CARE_INDIA_API_URL=http://127.0.0.1:8000
 ```
 
 **Never** put Databricks tokens or Tavily keys in the frontend. Those stay on the **Python** server.
@@ -539,7 +539,7 @@ Wire **5 one-click** strings (triage **analyze** input). Examples (tune to India
 
 ```
 +--------------------------------------------------------------------------------+
-|  CareCompass                                        [Status: health / readiness] |
+|  care-india                                        [Status: health / readiness] |
 +--------------------------------------------------------------------------------+
 |  Example queries (sidebar)     |  SYMPTOM INPUT (MULTILINE)                    |
 |  [Q1] [Q2] [Q3]                 |  [_____________________________________]    |
