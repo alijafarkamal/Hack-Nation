@@ -21,7 +21,8 @@ const STATES = ["Andaman and Nicobar Islands","Andhra Pradesh","Arunachal Prades
 const label = (s:string) => s.replace(/([a-z])([A-Z])/g,"$1 $2").replace(/[_-]/g," ").replace(/\b\w/g,c=>c.toUpperCase());
 
 export default function Dashboard() {
-  const mounted=useSyncExternalStore(subscribeToClient,()=>true,()=>false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const [query,setQuery]=useState("Fever and difficulty breathing for 2 days; need emergency care");
   const [state,setState]=useState("Bihar"); const [topK,setTopK]=useState(10);
   const [triage,setTriage]=useState<TriageResponse|null>(null); const [match,setMatch]=useState<MatchResponse|null>(null);
