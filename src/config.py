@@ -42,10 +42,13 @@ else:
     )
     mlflow.set_tracking_uri("mlruns")
 
-db_client = WorkspaceClient(
-    host=DATABRICKS_HOST or "https://placeholder.cloud.databricks.com",
-    token=DATABRICKS_TOKEN or "dapi_placeholder",
-)
+client_kwargs = {}
+if DATABRICKS_HOST:
+    client_kwargs["host"] = DATABRICKS_HOST
+if DATABRICKS_TOKEN:
+    client_kwargs["token"] = DATABRICKS_TOKEN
+
+db_client = WorkspaceClient(**client_kwargs)
 
 class LazyVectorSearchClient:
     """Create the network-aware client on first retrieval, never at API import time."""
@@ -54,11 +57,12 @@ class LazyVectorSearchClient:
 
     def _get(self) -> VectorSearchClient:
         if self._client is None:
-            self._client = VectorSearchClient(
-                workspace_url=DATABRICKS_HOST or "https://placeholder.cloud.databricks.com",
-                personal_access_token=DATABRICKS_TOKEN or "dapi_placeholder",
-                disable_notice=True,
-            )
+            vs_kwargs = {"disable_notice": True}
+            if DATABRICKS_HOST:
+                vs_kwargs["workspace_url"] = DATABRICKS_HOST
+            if DATABRICKS_TOKEN:
+                vs_kwargs["personal_access_token"] = DATABRICKS_TOKEN
+            self._client = VectorSearchClient(**vs_kwargs)
         return self._client
 
     def get_index(self, *args, **kwargs):  # type: ignore[no-untyped-def]
