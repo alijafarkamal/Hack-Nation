@@ -80,6 +80,21 @@ _SAFETY = (
     "In emergencies, seek immediate in-person care."
 )
 
+def _run_llm_judge(user_request: str, ai_answer: str) -> dict[str, Any]:
+    prompt = """You are an AI Output Judge verifying a healthcare facility recommendation.
+Review the AI's answer against the user's request.
+Output ONLY JSON in this format:
+{"trust_score": <int 0-100>, "judge_note": "<short explanation of whether the AI hallucinated or if the data is reliable>"}"""
+    user_msg = f"User Request: {user_request}\nAI Answer: {ai_answer[:2000]}"
+    try:
+        raw = query_llm(prompt, user_msg, max_tokens=150)
+        import json
+        s = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        o = json.loads(s)
+        return {"trust_score": o.get("trust_score", 50), "judge_note": o.get("judge_note", "Validation parsed with warnings.")}
+    except Exception as e:
+        return {"trust_score": 0, "judge_note": f"Judge unavailable ({e})"}
+
 
 def match_facilities_for_session(
     session_id: str, correlation_id: str, state_hint: str | None, top_k: int
@@ -124,8 +139,14 @@ def match_facilities_for_session(
         except Exception as e:
             desert_analysis = f"Desert analysis unavailable ({e})"
 
+    llm_judge = None
+    final_ans = g.get("final_answer")
+    if final_ans:
+        llm_judge = _run_llm_judge(q, final_ans)
+
     return {
         **g,
+        "llm_judge": llm_judge,
         "desert_analysis": desert_analysis,
         "safety_disclaimer": _SAFETY,
         "graph_summary": (g.get("final_answer") or "")[:20000] or None,
