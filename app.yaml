@@ -12,3 +12,13 @@ env:
     value: india_medical
   - name: SHORTLIST_TABLE
     value: hack_nation.india_medical.user_shortlists
+  - name: GENIE_SPACE_ID
+    value: 01f140d537191d2ea37f76b1b8d3681b
+  - name: VECTOR_SEARCH_INDEX
+    value: hack_nation.india_medical.india_facilities_index
+  - name: VECTOR_SEARCH_ENDPOINT
+    value: india-medical-vs
+  - name: LLM_ENDPOINT
+    value: databricks-meta-llama-3-3-70b-instruct
+  - name: MLFLOW_EXPERIMENT_PATH
+    value: /Shared/india-medical-agent

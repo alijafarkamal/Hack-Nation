@@ -1,4 +1,4 @@
-export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
@@ -59,10 +59,16 @@ export const referralPreview = (sessionId: string, facilityName: string, patient
   method: "POST", body: JSON.stringify({ session_id: sessionId, to_facility: facilityName, patient_summary: patientSummary, to_phone: phone }),
 });
 
+export const submitCorrection = (facilityName: string, issue: string) => api<Record<string, any>>("/corrections/submit", {
+  method: "POST", body: JSON.stringify({ facility_name: facilityName, issue }),
+});
+
 export type TriageResponse = {
   session_id: string; capabilities_needed: string[]; red_flags: string[]; correlation_id?: string;
 };
 export type MatchResponse = Record<string, any> & {
   search_result?: Record<string, any>[]; trust_artifacts?: Record<string, any>;
   synthesis_artifacts?: Record<string, any>; citations?: Record<string, any>[]; final_answer?: string;
+  llm_judge?: { trust_score: number; judge_note: string };
+  desert_analysis?: string;
 };

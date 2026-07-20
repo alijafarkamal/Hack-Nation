@@ -53,10 +53,19 @@ def _cid(request: Request) -> str:
 
 @app.get("/healthz")
 def healthz() -> dict:
+    from src.config import VS_ENDPOINT, VS_INDEX, LLM_ENDPOINT, GENIE_SPACE_ID
+    int_status = integration_status()
+    int_status["vector_search"] = {
+        "configured": bool(VS_ENDPOINT and VS_INDEX),
+        "endpoint": VS_ENDPOINT or "NOT SET",
+        "index": VS_INDEX or "NOT SET",
+    }
+    int_status["llm_endpoint"] = {"configured": bool(LLM_ENDPOINT), "name": LLM_ENDPOINT or "NOT SET"}
+    int_status["genie"] = {"configured": bool(GENIE_SPACE_ID)}
     return {
         "ok": True,
         "service": "care-india",
-        "integrations": integration_status(),
+        "integrations": int_status,
     }
 
 
