@@ -1,10 +1,6 @@
 import type { Metadata } from "next";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
-import "./errors.css";
-import "./triage-form.css";
-import "./facility-images.css";
-import "./theme-overrides.css";
 
 export const metadata: Metadata = {
   title: "CareCompass India — Triage & Matching",
