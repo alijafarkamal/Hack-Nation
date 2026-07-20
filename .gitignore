@@ -90,7 +90,6 @@ temp/
 node_modules/
 frontend/dist/
 .next/
-out/
 .nuxt/
 
 # Large / local-only data (CSV lives under docs/csv/ locally)
