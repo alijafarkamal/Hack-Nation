@@ -2,6 +2,8 @@
 
 > **Advanced Agentic Clinical Decision Support and Geospatial Analysis for 1.4 Billion Lives**
 
+🎥 **[Watch the Demo on YouTube](https://youtu.be/EUKVJ-YuD0s)**
+
 CareCompass is a comprehensive, multi-agent AI system designed to resolve fragmented healthcare infrastructure data into trusted, evidence-backed clinical intelligence. By leveraging a sophisticated Retrieval-Augmented Generation (RAG) pipeline and LLM-as-a-Judge consensus mechanisms, the system identifies medical facilities, validates capabilities, and executes real-time public health policy analysis (e.g., detecting "Medical Deserts" vs. "Data Deserts").
 
 ---
@@ -52,6 +54,7 @@ Traditional Boolean healthcare databases fail at mapping colloquial symptoms to 
 The project implements a decoupled-but-unified deployment architecture. The highly interactive Next.js application is compiled into a static export and served directly from the FastAPI Python server, allowing seamless Databricks Apps deployment.
 
 ### Backend Initialization (FastAPI)
+
 ```bash
 # Initialize Python Virtual Environment & Dependencies
 pip install -r requirements.txt
