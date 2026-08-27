@@ -1,16 +1,16 @@
-# CareCompass India: Multi-Agent Healthcare Intelligence & Policy Inference System
+# Healthcare Infrastructure Intelligence Agent India: Multi-Agent Healthcare Intelligence & Policy Inference System
 
 > **Advanced Agentic Clinical Decision Support and Geospatial Analysis for 1.4 Billion Lives**
 
 🎥 **[Watch the Demo on YouTube](https://youtu.be/EUKVJ-YuD0s)**
 
-CareCompass is a comprehensive, multi-agent AI system designed to resolve fragmented healthcare infrastructure data into trusted, evidence-backed clinical intelligence. By leveraging a sophisticated Retrieval-Augmented Generation (RAG) pipeline and LLM-as-a-Judge consensus mechanisms, the system identifies medical facilities, validates capabilities, and executes real-time public health policy analysis (e.g., detecting "Medical Deserts" vs. "Data Deserts").
+Healthcare Infrastructure Intelligence Agent is a comprehensive, multi-agent AI system designed to resolve fragmented healthcare infrastructure data into trusted, evidence-backed clinical intelligence. By leveraging a sophisticated Retrieval-Augmented Generation (RAG) pipeline and LLM-as-a-Judge consensus mechanisms, tfhe system identifies medical facilities, validates capabilities, and executes real-time public health policy analysis (e.g., detecting "Medical Deserts" vs. "Data Deserts").
 
 ---
 
 ## 🔬 System Architecture & Research Novelty
 
-The core of CareCompass is built upon a **Directed Acyclic Graph (DAG) state-machine**, orchestrating specialized AI agents to execute parallel retrieval, critical synthesis, and rigorous trust validation.
+The core of Healthcare Infrastructure Intelligence Agent is built upon a **Directed Acyclic Graph (DAG) state-machine**, orchestrating specialized AI agents to execute parallel retrieval, critical synthesis, and rigorous trust validation.
 
 ### 1. Multi-Agent Orchestration (LangGraph)
 The backend implements a sophisticated state graph architecture where distinct LLM agents possess isolated responsibilities. 
@@ -19,7 +19,7 @@ The backend implements a sophisticated state graph architecture where distinct L
 * **Synthesis Agent:** Cross-references retrieved facilities against clinical requirements, synthesizing the final medical pathway.
 
 ### 2. LLM-as-a-Judge Consensus & Trust Scoring
-To mitigate hallucination risks inherent in Generative AI healthcare applications, CareCompass implements a strict validation layer:
+To mitigate hallucination risks inherent in Generative AI healthcare applications, Healthcare Infrastructure Intelligence Agent implements a strict validation layer:
 * **Evidence Validation:** A secondary, isolated LLM acts as an adjudicator, algorithmically scoring the primary synthesis agent's output against the raw retrieved context.
 * **Trust Score Calculation:** Generates an empirical `trust_score` (0-100%). Outputs scoring below the defined threshold are flagged as "Suspicious" or "Requires Human Review," preventing unverified clinical routing.
 
